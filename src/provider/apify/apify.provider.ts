@@ -34,3 +34,23 @@ export async function fetchInstagramPost(username: string, resultLimits: number)
 
   return items.slice(0, resultLimits);
 }
+
+export async function fetchInstagramTrends(search: string, searchLimit: number, daysBack: number) {
+  if (!Number.isInteger(searchLimit) || searchLimit < 1 || searchLimit > 250) {
+    throw new Error('O limite de coleta deve ser um inteiro entre 1 e 250');
+  }
+  if (!Number.isInteger(daysBack) || daysBack < 1 || daysBack > 30) {
+    throw new Error('O período deve ser um inteiro entre 1 e 30 dias');
+  }
+
+  const client = createApifyClient();
+  const run = await client.actor('seemuapps/instagram-keyword-posts-scraper').call({
+    keywords: [search],
+    maxPostsPerKeyword: searchLimit,
+    postType: 'all',
+    dateFrom: `${daysBack} days`,
+  });
+
+  const { items } = await client.dataset(run.defaultDatasetId).listItems();
+  return items;
+}

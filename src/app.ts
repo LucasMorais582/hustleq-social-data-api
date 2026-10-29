@@ -11,6 +11,7 @@ import { env } from './config/env.js';
 import { healthRoutes } from './modules/health/health.routes.js';
 import { getProfileInstagram } from './modules/instagram/profile/instagram.profile.routes.js';
 import { getPostInstagram } from './modules/instagram/post/instagram.post.routes.js';
+import { getTrendsInstagram } from './modules/instagram/trends/instagram.trends.routes.js';
 
 export function buildApp() {
   const app = Fastify({ logger: { level: env.LOG_LEVEL } }).withTypeProvider<ZodTypeProvider>();
@@ -39,6 +40,7 @@ export function buildApp() {
   app.register(healthRoutes, { prefix: '/api/v1' });
   app.register(getProfileInstagram, { prefix: '/api/v1' });
   app.register(getPostInstagram, { prefix: '/api/v1' });
+  app.register(getTrendsInstagram, { prefix: '/api/v1' });
 
   app.get('/', async () => ({
     name: 'HustleQ Social Data API',
