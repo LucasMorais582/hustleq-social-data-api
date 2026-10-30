@@ -22,6 +22,8 @@ describe('GET /api/v1/health', () => {
     app = buildApp();
     const response = await app.inject({ method: 'GET', url: '/docs' });
 
-    expect(response.statusCode).toBe(302);
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['content-type']).toContain('text/html');
+    expect(response.body).toContain('swagger-ui');
   });
 });

@@ -1,3 +1,4 @@
+import { authHeaders } from './helpers/auth.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 
@@ -23,7 +24,7 @@ describe('POST /api/v1/instagram/trends/search with Seemu', () => {
 
   async function prepare(items: unknown[]) {
     actor.mockReturnValue({ call });
-    call.mockResolvedValue({ defaultDatasetId: 'dataset' });
+    call.mockResolvedValue({ status: 'SUCCEEDED', defaultDatasetId: 'dataset' });
     listItems.mockResolvedValue({ items });
     app = buildApp();
     return app;
@@ -51,6 +52,7 @@ describe('POST /api/v1/instagram/trends/search with Seemu', () => {
     ]);
     const response = await instance.inject({
       method: 'POST',
+      headers: authHeaders(),
       url,
       payload: { target: ' guaratiba ', searchLimit: 1, daysBack: 7 },
     });
@@ -60,6 +62,7 @@ describe('POST /api/v1/instagram/trends/search with Seemu', () => {
       keywords: ['guaratiba'],
       maxPostsPerKeyword: 1,
       postType: 'all',
+      minLikes: 0,
       dateFrom: '7 days',
     });
     const result = response.json().response;
@@ -76,33 +79,40 @@ describe('POST /api/v1/instagram/trends/search with Seemu', () => {
     expect(result.posts[0]).not.toHaveProperty('ignoredField');
   });
 
-  it.each([{ items: [] }, { items: [{ recordType: 'notice', message: 'No matching posts' }] }])(
-    'returns no posts for %j',
-    async ({ items }) => {
-      const instance = await prepare(items);
-      const response = await instance.inject({
-        method: 'POST',
-        url,
-        payload: { target: 'trilha' },
-      });
-      expect(response.statusCode).toBe(200);
-      expect(response.json().response).toMatchObject({ daysBack: 30, posts: [] });
-      expect(call).toHaveBeenCalledWith({
-        keywords: ['trilha'],
-        maxPostsPerKeyword: 10,
-        postType: 'all',
-        dateFrom: '30 days',
-      });
-    },
-  );
+  it.each([{ items: [] }])('returns no posts for %j', async ({ items }) => {
+    const instance = await prepare(items);
+    const response = await instance.inject({
+      method: 'POST',
+      headers: authHeaders(),
+      url,
+      payload: { target: 'trilha' },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().response).toMatchObject({ daysBack: 30, posts: [] });
+    expect(call).toHaveBeenCalledWith({
+      keywords: ['trilha'],
+      maxPostsPerKeyword: 10,
+      postType: 'all',
+      minLikes: 0,
+      dateFrom: '30 days',
+    });
+  });
 
   it('supports photos and carousel media, preserving unknown metrics as null', async () => {
     const takenAt = new Date(Date.now() - 86400000).toISOString();
     const instance = await prepare([
-      { recordType: 'post', postId: 'photo', type: 'photo', takenAt, likeCount: null },
+      {
+        recordType: 'post',
+        postId: 'photo',
+        type: 'photo',
+        takenAt,
+        likeCount: null,
+        locationName: 'Guaratiba',
+      },
       {
         recordType: 'post',
         postId: 'carousel',
+        locationName: 'Guaratiba',
         type: 'carousel',
         takenAt,
         carouselImageUrls: ['https://example.com/1.jpg', 'https://example.com/2.jpg'],
@@ -110,6 +120,7 @@ describe('POST /api/v1/instagram/trends/search with Seemu', () => {
     ]);
     const response = await instance.inject({
       method: 'POST',
+      headers: authHeaders(),
       url,
       payload: { target: 'guaratiba' },
     });
@@ -129,6 +140,7 @@ describe('POST /api/v1/instagram/trends/search with Seemu', () => {
     const makePost = (postId: string, milliseconds: number) => ({
       recordType: 'post',
       type: 'reel',
+      likeCount: 1000,
       postId,
       takenAt: new Date(milliseconds).toISOString(),
     });
@@ -142,6 +154,7 @@ describe('POST /api/v1/instagram/trends/search with Seemu', () => {
     ]);
     const response = await instance.inject({
       method: 'POST',
+      headers: authHeaders(),
       url,
       payload: { target: 'guaratiba', searchLimit: 1 },
     });
@@ -161,7 +174,112 @@ describe('POST /api/v1/instagram/trends/search with Seemu', () => {
     { target: 'trilha', searchLimit: 1.5 },
   ])('rejects invalid input %j', async (payload) => {
     const instance = await prepare([]);
-    const response = await instance.inject({ method: 'POST', url, payload });
+    const response = await instance.inject({
+      method: 'POST',
+      headers: authHeaders(),
+      url,
+      payload,
+    });
+    expect(response.statusCode).toBe(400);
+    expect(call).not.toHaveBeenCalled();
+  });
+
+  it('sends multiple keywords in one run and enforces likes, location and type locally', async () => {
+    const takenAt = new Date(Date.now() - 86400000).toISOString();
+    const post = (
+      postId: string,
+      likeCount: number | null,
+      locationName: string | null,
+      type = 'reel',
+      keyword = 'Guaratiba',
+    ) => ({
+      recordType: 'post',
+      postId,
+      keyword,
+      type,
+      takenAt,
+      likeCount,
+      locationName,
+    });
+    const instance = await prepare([
+      post('no-location-low', 999, null),
+      post('threshold', 1000, null),
+      post('located', 200, 'Guaratiba'),
+      post('below-request', 199, 'Guaratiba'),
+      post('unknown', null, null),
+      post('wrong-type', 5000, 'Guaratiba', 'photo'),
+      post('blank-location', 999, '  '),
+      post('other', 1500, null, 'reel', 'Recreio'),
+      post('unrequested-keyword', 2000, null, 'reel', 'Copacabana'),
+    ]);
+    const response = await instance.inject({
+      method: 'POST',
+      headers: authHeaders(),
+      url,
+      payload: {
+        keywords: ['Guaratiba', 'Recreio'],
+        postType: 'reel',
+        minLikes: 200,
+        searchLimit: 10,
+      },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(call).toHaveBeenCalledTimes(1);
+    expect(call).toHaveBeenCalledWith({
+      keywords: ['Guaratiba', 'Recreio'],
+      postType: 'reel',
+      minLikes: 200,
+      maxPostsPerKeyword: 10,
+      dateFrom: '30 days',
+    });
+    expect(response.json().response.posts.map((p: { id: string }) => p.id)).toEqual([
+      'threshold',
+      'located',
+      'other',
+    ]);
+  });
+
+  it('respects minLikes above the unlocated threshold and caps each keyword separately', async () => {
+    const takenAt = new Date(Date.now() - 86400000).toISOString();
+    const instance = await prepare([
+      { recordType: 'post', postId: 'low', type: 'reel', keyword: 'A', takenAt, likeCount: 1999 },
+      ...['A', 'B'].flatMap((keyword) =>
+        [1, 2].map((n) => ({
+          recordType: 'post',
+          postId: `${keyword}-${n}`,
+          keyword,
+          type: 'reel',
+          takenAt,
+          likeCount: 2000,
+        })),
+      ),
+    ]);
+    const response = await instance.inject({
+      method: 'POST',
+      headers: authHeaders(),
+      url,
+      payload: { keywords: ['A', 'B'], minLikes: 2000, searchLimit: 1 },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().response.posts.map((p: { id: string }) => p.id)).toEqual(['A-1', 'B-1']);
+  });
+
+  it.each([
+    {},
+    { keywords: [] },
+    { keywords: [' '] },
+    { target: 'A', keywords: ['B'] },
+    { target: 'A', minLikes: -1 },
+    { target: 'A', minLikes: 1.5 },
+    { target: 'A', postType: 'unknown' },
+  ])('rejects invalid filters %j without calling Apify', async (payload) => {
+    const instance = await prepare([]);
+    const response = await instance.inject({
+      method: 'POST',
+      headers: authHeaders(),
+      url,
+      payload,
+    });
     expect(response.statusCode).toBe(400);
     expect(call).not.toHaveBeenCalled();
   });
@@ -172,9 +290,10 @@ describe('POST /api/v1/instagram/trends/search with Seemu', () => {
     ]);
     const response = await instance.inject({
       method: 'POST',
+      headers: authHeaders(),
       url,
       payload: { target: 'guaratiba' },
     });
-    expect(response.statusCode).toBe(500);
+    expect(response.statusCode).toBe(503);
   });
 });

@@ -1,3 +1,4 @@
+import { authHeaders } from './helpers/auth.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 
@@ -28,13 +29,14 @@ describe('POST /api/v1/instagram/post/search', () => {
       if (!Number.isInteger(input.resultsLimit)) {
         throw new Error('Field input.resultsLimit must be integer');
       }
-      return { defaultDatasetId: 'dataset' };
+      return { status: 'SUCCEEDED', defaultDatasetId: 'dataset' };
     });
-    listItems.mockResolvedValue({ items: [{ id: 'post-1', caption: 'Example' }] });
+    listItems.mockResolvedValue({ items: [{ id: 'post-1', type: 'Image', caption: 'Example' }] });
     app = buildApp();
 
     const response = await app.inject({
       method: 'POST',
+      headers: authHeaders(),
       url: '/api/v1/instagram/post/search',
       payload: { username: 'helio_fagundes.04', resultLimits: 15 },
     });
@@ -54,14 +56,18 @@ describe('POST /api/v1/instagram/post/search', () => {
   ])(
     'returns $expected posts when $available are available and $limit requested',
     async ({ available, limit, expected }) => {
-      call.mockResolvedValue({ defaultDatasetId: 'dataset' });
+      call.mockResolvedValue({ status: 'SUCCEEDED', defaultDatasetId: 'dataset' });
       listItems.mockResolvedValue({
-        items: Array.from({ length: available }, (_, index) => ({ id: `post-${index}` })),
+        items: Array.from({ length: available }, (_, index) => ({
+          id: `post-${index}`,
+          type: 'Image',
+        })),
       });
       app = buildApp();
 
       const response = await app.inject({
         method: 'POST',
+        headers: authHeaders(),
         url: '/api/v1/instagram/post/search',
         payload: { username: 'helio_fagundes.04', resultLimits: limit },
       });
@@ -74,4 +80,42 @@ describe('POST /api/v1/instagram/post/search', () => {
       );
     },
   );
+  it('rejects resultLimits above 50 before calling Apify', async () => {
+    app = buildApp();
+    const response = await app.inject({
+      method: 'POST',
+      headers: authHeaders(),
+      url: '/api/v1/instagram/post/search',
+      payload: { username: 'helio_fagundes.04', resultLimits: 51 },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(call).not.toHaveBeenCalled();
+  });
+  it.each([0, -1, 1.5, 51, 100, '50', null])(
+    'rejects invalid resultLimits %j without a provider call',
+    async (resultLimits) => {
+      app = buildApp();
+      const response = await app.inject({
+        method: 'POST',
+        headers: authHeaders(),
+        url: '/api/v1/instagram/post/search',
+        payload: { username: 'example', resultLimits },
+      });
+      expect(response.statusCode).toBe(400);
+      expect(call).not.toHaveBeenCalled();
+    },
+  );
+  it('accepts exactly fifty', async () => {
+    call.mockResolvedValue({ status: 'SUCCEEDED', defaultDatasetId: 'dataset' });
+    listItems.mockResolvedValue({ items: [] });
+    app = buildApp();
+    const response = await app.inject({
+      method: 'POST',
+      headers: authHeaders(),
+      url: '/api/v1/instagram/post/search',
+      payload: { username: 'example', resultLimits: 50 },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(call).toHaveBeenCalledWith({ username: ['example'], resultsLimit: 50 });
+  });
 });

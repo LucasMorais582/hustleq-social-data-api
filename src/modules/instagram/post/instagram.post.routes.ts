@@ -1,3 +1,4 @@
+import { authenticate } from '../../../auth/authenticate.js';
 import { instagramPostRequestSchema } from './instagram.post.schemas.js';
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
@@ -9,8 +10,10 @@ export async function getPostInstagram(app: FastifyInstance): Promise<void> {
   route.post(
     '/instagram/post/search',
     {
+      onRequest: authenticate,
       schema: {
-        body: instagramPostRequestSchema
+        security: [{ bearerAuth: [] }],
+        body: instagramPostRequestSchema,
       },
     },
     async (request, reply) => {

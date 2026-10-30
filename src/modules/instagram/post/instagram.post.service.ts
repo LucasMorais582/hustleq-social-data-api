@@ -1,3 +1,5 @@
+import { ProviderError, providerFailure } from '../../../errors/provider.error.js';
+import { normalizeMediaType, normalizeHashtags } from '../shared/instagram.normalize.js';
 import type { profileRequestWithResultLimits } from './instagram.post.schemas.js';
 import { fetchInstagramPost } from '../../../provider/apify/apify.provider.js';
 import { instagramProviderPostSchema } from './instagram.post.schemas.js';
@@ -6,10 +8,17 @@ export async function getInstagramPost(request: profileRequestWithResultLimits) 
   const rawItems = await fetchInstagramPost(request.username, request.resultLimits);
 
   return rawItems.map((rawItem) => {
-    const item = instagramProviderPostSchema.parse(rawItem);
+    const result = instagramProviderPostSchema.safeParse(rawItem);
+    if (!result.success)
+      throw new ProviderError(
+        503,
+        'PROVIDER_INVALID_RESPONSE',
+        'A Apify retornou uma publicação em formato inválido',
+      );
+    const item = result.data;
 
     if (item.error) {
-      throw new Error(item.errorDescription ?? `Falha ao buscar publicação: ${item.error}`);
+      throw providerFailure(item.errorDescription ?? `Falha ao buscar publicação: ${item.error}`);
     }
 
     const post = {
@@ -22,7 +31,7 @@ export async function getInstagramPost(request: profileRequestWithResultLimits) 
         username: item.ownerUsername,
       },
 
-      type: item.type,
+      type: normalizeMediaType(item.type),
       productType: item.productType,
       caption: item.caption,
       publishedAt: item.timestamp,
@@ -37,7 +46,7 @@ export async function getInstagramPost(request: profileRequestWithResultLimits) 
         playsCount: item.videoPlayCount,
       },
 
-      hashtags: item.hashtags ?? [],
+      hashtags: normalizeHashtags(item.hashtags),
       mentions: item.mentions ?? [],
     };
 

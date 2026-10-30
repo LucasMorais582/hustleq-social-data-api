@@ -1,3 +1,4 @@
+import { authenticate } from '../../../auth/authenticate.js';
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { instagramTrendsRequestSchema } from './instagram.trends.schemas.js';
@@ -9,7 +10,9 @@ export async function getTrendsInstagram(app: FastifyInstance): Promise<void> {
   route.post(
     '/instagram/trends/search',
     {
+      onRequest: authenticate,
       schema: {
+        security: [{ bearerAuth: [] }],
         tags: ['Instagram'],
         summary: 'Buscar posts e reels por palavra-chave e período',
         body: instagramTrendsRequestSchema,

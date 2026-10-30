@@ -1,3 +1,5 @@
+import { ProviderError } from './errors/provider.error.js';
+import jwt from '@fastify/jwt';
 import Fastify from 'fastify';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
@@ -16,6 +18,26 @@ import { getTrendsInstagram } from './modules/instagram/trends/instagram.trends.
 export function buildApp() {
   const app = Fastify({ logger: { level: env.LOG_LEVEL } }).withTypeProvider<ZodTypeProvider>();
 
+  app.register(jwt, {
+    secret: env.JWT_SECRET,
+    sign: { algorithm: 'HS256', iss: env.JWT_ISSUER, aud: env.JWT_AUDIENCE, expiresIn: '1h' },
+    verify: {
+      algorithms: ['HS256'],
+      allowedIss: env.JWT_ISSUER,
+      allowedAud: env.JWT_AUDIENCE,
+      requiredClaims: ['exp', 'sub'],
+    },
+  });
+
+  app.setErrorHandler((error, _request, reply) => {
+    if (error instanceof ProviderError) {
+      return reply
+        .status(error.statusCode)
+        .send({ statusCode: error.statusCode, code: error.code, message: error.message });
+    }
+    return reply.send(error);
+  });
+
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
 
@@ -25,6 +47,9 @@ export function buildApp() {
         title: 'HustleQ Social Data API',
         description: 'Normalized social data API for HustleQ Beta.',
         version: '0.1.0',
+      },
+      components: {
+        securitySchemes: { bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' } },
       },
       servers: [{ url: 'http://localhost:3000', description: 'Local development' }],
     },

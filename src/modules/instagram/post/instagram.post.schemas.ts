@@ -2,7 +2,7 @@ import { z } from 'zod/v4';
 
 export const instagramPostRequestSchema = z.object({
   username: z.string().min(3),
-  resultLimits: z.int().min(1),
+  resultLimits: z.int().min(1).max(50),
 });
 export type profileRequestWithResultLimits = z.infer<typeof instagramPostRequestSchema>;
 
