@@ -59,3 +59,23 @@ npm run format:check
 npm test
 npm run build
 ```
+
+## Etapa 2 — migration inicial
+
+A migration `20261117000000_create_instagram_models` foi gerada a partir do schema
+Prisma. Cria cinco tabelas, o enum de mídia, índices e chaves estrangeiras.
+O SQL usa uma transação: se uma instrução falhar, a criação inteira é revertida.
+Não inclui `DROP`, `TRUNCATE`, `DELETE` ou alterações das tabelas já existentes.
+
+Ainda não conecta os endpoints ao banco nem implementa as regras transacionais
+da persistência. Os modelos `User` e autenticação/propriedade continuam separados.
+
+A geração e revisão do SQL são locais. `prisma validate`, geração do Client e os
+testes da API não comprovam a aplicação da migration em um PostgreSQL real.
+Antes de aplicar, confirmar o ambiente de destino e revisar se já existem tabelas
+ou histórico de migrations nesse banco. Em banco já populado sem histórico Prisma,
+pode ser necessário um baseline; não executar reset para contornar essa situação.
+
+Após a confirmação e revisão do destino, usar `npm run prisma:migrate:deploy`.
+Não executar esse comando automaticamente nos endpoints. A validação da aplicação
+real e o resultado de `prisma migrate status` devem ser registrados na etapa de aplicação.
