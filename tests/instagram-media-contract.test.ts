@@ -1,3 +1,6 @@
+vi.mock('../src/modules/instagram/profile/instagram.profile.repository.js', () => ({
+  saveProfileCollection: vi.fn().mockResolvedValue({ instagramProfileId: 'internal' }),
+}));
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { authHeaders } from './helpers/auth.js';
@@ -17,7 +20,7 @@ describe('media contract across routes', () => {
   let app: FastifyInstance | undefined;
   afterEach(async () => {
     await app?.close();
-    vi.resetAllMocks();
+    vi.clearAllMocks();
   });
   it.each([
     { legacy: 'Image', seemu: 'photo', expected: 'photo' },

@@ -1,3 +1,6 @@
+import { PersistenceError } from '../../../errors/persistence.error.js';
+import { saveProfileCollection } from './instagram.profile.repository.js';
+import { normalizeHashtags } from '../shared/instagram.normalize.js';
 import { ProviderError, providerFailure } from '../../../errors/provider.error.js';
 import { normalizeMediaType } from '../shared/instagram.normalize.js';
 import { z } from 'zod/v4';
@@ -62,6 +65,48 @@ export async function getInstagramProfile(request: profileRequest) {
     commentsCount: post.commentsCount,
     publishedAt: post.timestamp,
   }));
+
+  // Mantém o contrato HTTP existente; a persistência usa os dados completos validados.
+  const collectedAt = new Date();
+  const ownedPosts = item.latestPosts.filter((post) => post.ownerId === item.id);
+  const collection = {
+    collectedAt,
+    profile: {
+      instagramId: item.id,
+      username: item.username,
+      name: item.fullName ?? null,
+      url: item.url ?? null,
+      bio: item.biography ?? null,
+      profilePhoto: item.profilePicUrlHD ?? null,
+      category: item.businessCategoryName ?? null,
+      isVerified: item.verified ?? null,
+      followers: item.followersCount ?? null,
+      following: item.followsCount ?? null,
+      postsCount: item.postsCount ?? null,
+    },
+    posts: ownedPosts.map((post) => {
+      const views = post.videoPlayCount ?? post.videoViewCount;
+      return {
+        instagramPostId: post.id,
+        type: normalizeMediaType(post.type),
+        url: post.url ?? null,
+        caption: post.caption ?? null,
+        hashtags: normalizeHashtags(post.hashtags),
+        displayUrl: post.displayUrl ?? null,
+        images: post.images ?? [],
+        timestamp: post.timestamp ? new Date(post.timestamp) : null,
+        ownerUsername: post.ownerUsername ?? item.username,
+        likesCount: post.likesCount ?? null,
+        commentsCount: post.commentsCount ?? null,
+        viewsCount: views === null || views === undefined ? null : BigInt(views),
+      };
+    }),
+  };
+  try {
+    await saveProfileCollection(collection);
+  } catch {
+    throw new PersistenceError();
+  }
 
   return { profile, posts };
 }

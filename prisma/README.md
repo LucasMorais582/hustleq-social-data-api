@@ -79,3 +79,54 @@ pode ser necessário um baseline; não executar reset para contornar essa situa�
 Após a confirmação e revisão do destino, usar `npm run prisma:migrate:deploy`.
 Não executar esse comando automaticamente nos endpoints. A validação da aplicação
 real e o resultado de `prisma migrate status` devem ser registrados na etapa de aplicação.
+
+## Aplicação verificada no desenvolvimento
+
+A migration `20261117000000_create_instagram_models` foi aplicada ao banco de
+desenvolvimento com autorização do responsável pelo projeto.
+
+Verificações realizadas após o deploy:
+
+- `prisma migrate status`: banco atualizado, sem migrations pendentes.
+- `prisma migrate diff` entre banco e schema: nenhuma diferença detectada.
+- Teste real com Prisma Client: criação e leitura dos cinco modelos, relações,
+  campos nulos, arrays vazios e `viewsCount` acima do limite de INTEGER.
+- A transação desse teste foi revertida intencionalmente, com leitura posterior
+  confirmando que os registros de teste não permaneceram no banco.
+
+Na conclusão da aplicação da migration, os endpoints ainda não persistiam as
+coletas. A integração de profile/search foi adicionada na etapa 3, descrita abaixo.
+
+## Etapa 3 — base transacional da persistência de perfis
+
+`src/modules/instagram/profile/instagram.profile.repository.ts` recebe uma coleta
+normalizada e usa uma transação serializável para salvar identidade do perfil,
+snapshot quantitativo e publicações com seu primeiro snapshot de métricas.
+Conflitos de concorrência são repetidos no máximo três vezes. A identidade é
+atualizada pelo ID externo sem alterar `ownerUserId`.
+
+O snapshot de perfil só é criado se não houver anterior ou se passaram pelo menos
+24 horas desde o último. Posts já existentes têm conteúdo atualizado, mas não
+recebem snapshots adicionais nesta etapa: o agendamento e o refresh seguem
+pendentes. Falhas não são ignoradas e revertem a transação inteira.
+
+Essa base está conectada ao `profile/search`: somente posts cujo `ownerId`
+corresponde ao ID externo do perfil consultado são persistidos. Posts de outros
+autores continuam no retorno HTTP, mas não são gravados nessa coleta. O repository
+não transfere silenciosamente um post já vinculado a outro perfil.
+`src/provider/database/prisma.client.ts` instancia o Client sob demanda;
+importar o módulo não abre conexão nem muda os endpoints atuais.
+
+O service valida e normaliza os dados antes da transação. Erros de persistência
+retornam 503 com `code: PERSISTENCE_FAILED`; não há resposta de sucesso com dados
+não salvos. O ID da resposta HTTP continua sendo o identificador externo.
+A atualização é por demanda em `profile/search`; ainda não há rotina automática
+a cada 24 horas nem atualização periódica de métricas dos dez posts mais recentes.
+
+Validação desta etapa: 107 testes automatizados, typecheck, lint, formatação e
+build aprovados. O repository também foi exercitado no PostgreSQL de desenvolvimento
+com transação revertida: duas chamadas iguais não duplicaram perfil/post, uma
+coleta 1 ms antes de 24 horas não criou snapshot e a coleta no limite exato criou.
+Os snapshots anteriores e o primeiro snapshot do post permaneceram intactos
+durante o teste. Após o rollback, não restaram registros de teste. O teste real
+usou dados sintéticos e não iniciou execução paga na Apify.

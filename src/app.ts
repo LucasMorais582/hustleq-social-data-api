@@ -1,3 +1,4 @@
+import { PersistenceError } from './errors/persistence.error.js';
 import { ProviderError } from './errors/provider.error.js';
 import jwt from '@fastify/jwt';
 import Fastify from 'fastify';
@@ -30,7 +31,7 @@ export function buildApp() {
   });
 
   app.setErrorHandler((error, _request, reply) => {
-    if (error instanceof ProviderError) {
+    if (error instanceof ProviderError || error instanceof PersistenceError) {
       return reply
         .status(error.statusCode)
         .send({ statusCode: error.statusCode, code: error.code, message: error.message });

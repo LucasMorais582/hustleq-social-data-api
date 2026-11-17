@@ -1,3 +1,6 @@
+vi.mock('../src/modules/instagram/profile/instagram.profile.repository.js', () => ({
+  saveProfileCollection: vi.fn().mockResolvedValue({ instagramProfileId: 'internal' }),
+}));
 import { authHeaders } from './helpers/auth.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
@@ -11,7 +14,7 @@ describe('POST /api/v1/instagram/profile/search', () => {
   let app: FastifyInstance | undefined;
   afterEach(async () => {
     await app?.close();
-    vi.resetAllMocks();
+    vi.clearAllMocks();
   });
 
   it.each([
