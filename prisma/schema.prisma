@@ -8,4 +8,100 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
-// Initial scaffold only. Domain models will be added after the database design is formally closed.
+enum InstagramMediaType {
+  photo
+  carousel
+  reel
+}
+
+model InstagramProfile {
+  id           String   @id @default(cuid())
+  // Referência externa reservada para a futura integração com User da HustleQ.
+  // Não há model User nem vínculo de autenticação nesta etapa.
+  ownerUserId  String?
+  instagramId  String   @unique
+  username     String
+  name         String?
+  url          String?
+  bio          String?
+  profilePhoto String?
+  category     String?
+  isVerified   Boolean?
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @db.Timestamptz(3)
+
+  snapshots            InstagramProfileSnapshot[]
+  posts                InstagramPost[]
+  monitoredCompetitors InstagramCompetitor[]      @relation("MonitoringProfile")
+  monitoredBy          InstagramCompetitor[]      @relation("CompetitorProfile")
+
+  @@index([ownerUserId])
+  @@index([username])
+}
+
+model InstagramProfileSnapshot {
+  id                 String   @id @default(cuid())
+  instagramProfileId String
+  followers          Int?
+  following          Int?
+  postsCount         Int?
+  collectedAt        DateTime @default(now()) @db.Timestamptz(3)
+
+  instagramProfile InstagramProfile @relation(fields: [instagramProfileId], references: [id], onDelete: Restrict)
+
+  // O intervalo mínimo de 24 horas exige validação transacional na persistência.
+  @@unique([instagramProfileId, collectedAt])
+}
+
+model InstagramCompetitor {
+  id                  String    @id @default(cuid())
+  instagramProfileId  String
+  competitorProfileId String
+  startedAt           DateTime  @default(now()) @db.Timestamptz(3)
+  endedAt             DateTime? @db.Timestamptz(3)
+  createdAt           DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime  @updatedAt @db.Timestamptz(3)
+
+  instagramProfile  InstagramProfile @relation("MonitoringProfile", fields: [instagramProfileId], references: [id], onDelete: Restrict)
+  competitorProfile InstagramProfile @relation("CompetitorProfile", fields: [competitorProfileId], references: [id], onDelete: Restrict)
+
+  // Cada retomada cria outra relação; não há unicidade do par ao longo do histórico.
+  // Limite de três ativos e validação de autorreferência ficam na persistência.
+  @@index([instagramProfileId, endedAt])
+  @@index([competitorProfileId])
+}
+
+model InstagramPost {
+  id                 String             @id @default(cuid())
+  instagramProfileId String
+  instagramPostId    String             @unique
+  url                String?
+  type               InstagramMediaType
+  caption            String?
+  hashtags           String[]           @default([])
+  displayUrl         String?
+  images             String[]           @default([])
+  timestamp          DateTime?          @db.Timestamptz(3)
+  ownerUsername      String?
+  createdAt          DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime           @updatedAt @db.Timestamptz(3)
+
+  instagramProfile InstagramProfile              @relation(fields: [instagramProfileId], references: [id], onDelete: Restrict)
+  metricSnapshots  InstagramPostMetricSnapshot[]
+
+  @@index([instagramProfileId, timestamp])
+}
+
+model InstagramPostMetricSnapshot {
+  id              String   @id @default(cuid())
+  // Chave do registro interno InstagramPost.id, não o identificador externo.
+  instagramPostId String
+  likesCount      Int?
+  commentsCount   Int?
+  viewsCount      BigInt?
+  collectedAt     DateTime @default(now()) @db.Timestamptz(3)
+
+  instagramPost InstagramPost @relation(fields: [instagramPostId], references: [id], onDelete: Restrict)
+
+  @@index([instagramPostId, collectedAt])
+}
