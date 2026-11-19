@@ -144,3 +144,17 @@ Hashtags precisam conter pelo menos uma letra Unicode. `4`, `#4` e `123` são
 removidas; `rj2026`, `SãoPaulo` e palavras em outros alfabetos são mantidas.
 A legenda original não é alterada. As hashtags são aparadas, sem o `#` inicial,
 e sem duplicados idênticos.
+
+## Coleta diária (Vercel)
+
+A rotina de todos os perfis salvos está preparada para a janela das 6h de
+`America/New_York`. Para ativar em produção, configurar `CRON_SECRET` (segredo
+aleatório de pelo menos 32 caracteres, separado do JWT) e
+`INSTAGRAM_REFRESH_ENABLED=true`, e fazer deploy com `vercel.json`.
+Manter `INSTAGRAM_REFRESH_ENABLED=false` no desenvolvimento evita coleta automática.
+A rotina não roda apenas por iniciar `npm run dev`.
+
+Detalhes de horários, limites do Vercel e da versão simples estão em
+[prisma/README.md](prisma/README.md#etapa-5--rotina-diária-simples-no-vercel).
+Ela atualiza métricas coletadas dos dez posts mais recentes e conserva os snapshots
+anteriores. Não cria User, não grava trends nem adiciona tabela de controle.

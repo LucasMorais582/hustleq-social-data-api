@@ -19,6 +19,7 @@ interface CollectedProfile {
 export interface ProfileCollection {
   profile: CollectedProfile;
   collectedAt: Date;
+  refreshMetricsSince?: Date;
   posts: {
     instagramPostId: string;
     type: InstagramMediaType;
@@ -93,6 +94,33 @@ export async function saveProfileCollection(
                   likesCount,
                   commentsCount,
                   viewsCount,
+                  collectedAt: collection.collectedAt,
+                },
+              });
+            }
+          }
+          if (collection.refreshMetricsSince) {
+            const latestPosts = await tx.instagramPost.findMany({
+              where: { instagramProfileId: profile.id, timestamp: { not: null } },
+              orderBy: [{ timestamp: 'desc' }, { id: 'asc' }],
+              take: 10,
+              select: { id: true, instagramPostId: true },
+            });
+            const collected = new Map(collection.posts.map((post) => [post.instagramPostId, post]));
+            for (const post of latestPosts) {
+              const metrics = collected.get(post.instagramPostId);
+              if (!metrics) continue; // Não transformar métricas antigas em uma coleta nova.
+              const latest = await tx.instagramPostMetricSnapshot.findFirst({
+                where: { instagramPostId: post.id },
+                orderBy: { collectedAt: 'desc' },
+              });
+              if (latest && latest.collectedAt >= collection.refreshMetricsSince) continue;
+              await tx.instagramPostMetricSnapshot.create({
+                data: {
+                  instagramPostId: post.id,
+                  likesCount: metrics.likesCount,
+                  commentsCount: metrics.commentsCount,
+                  viewsCount: metrics.viewsCount,
                   collectedAt: collection.collectedAt,
                 },
               });

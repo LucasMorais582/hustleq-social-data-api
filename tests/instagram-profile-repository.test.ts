@@ -45,10 +45,11 @@ function fixture() {
     instagramProfile: { upsert: vi.fn().mockResolvedValue({ id: 'profile-internal' }) },
     instagramProfileSnapshot: { findFirst: vi.fn().mockResolvedValue(null), create: vi.fn() },
     instagramPost: {
+      findMany: vi.fn().mockResolvedValue([]),
       findUnique: vi.fn().mockResolvedValue(null),
       upsert: vi.fn().mockResolvedValue({ id: 'post-internal' }),
     },
-    instagramPostMetricSnapshot: { create: vi.fn() },
+    instagramPostMetricSnapshot: { create: vi.fn(), findFirst: vi.fn().mockResolvedValue(null) },
   };
   const transaction = vi.fn(async (callback: (value: typeof tx) => Promise<unknown>) =>
     callback(tx),
@@ -151,5 +152,42 @@ describe('profile collection persistence', () => {
     tx.instagramPostMetricSnapshot.create.mockRejectedValue(new Error('database error'));
     await expect(saveProfileCollection(collection(), client)).rejects.toThrow('database error');
     expect(transaction).toHaveBeenCalledTimes(1);
+  });
+  it('refreshes only collected posts among the ten most recent, preserving daily snapshots', async () => {
+    const { tx, client } = fixture();
+    const input = collection();
+    input.refreshMetricsSince = new Date('2026-11-17T11:00:00Z');
+    tx.instagramPost.findUnique.mockResolvedValue({
+      id: 'post-internal',
+      instagramProfileId: 'profile-internal',
+    });
+    tx.instagramPost.findMany.mockResolvedValue([
+      { id: 'post-internal', instagramPostId: 'post-external' },
+      { id: 'missing', instagramPostId: 'uncollected-post' },
+    ]);
+    await saveProfileCollection(input, client);
+    expect(tx.instagramPost.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        take: 10,
+        where: { instagramProfileId: 'profile-internal', timestamp: { not: null } },
+      }),
+    );
+    expect(tx.instagramPostMetricSnapshot.create).toHaveBeenCalledTimes(1);
+    tx.instagramPostMetricSnapshot.create.mockClear();
+    tx.instagramPostMetricSnapshot.findFirst.mockResolvedValue({ collectedAt: input.collectedAt });
+    await saveProfileCollection(input, client);
+    expect(tx.instagramPostMetricSnapshot.create).not.toHaveBeenCalled();
+  });
+  it('does not refresh existing posts outside the top ten', async () => {
+    const { tx, client } = fixture();
+    const input = collection();
+    input.refreshMetricsSince = new Date('2026-11-17T11:00:00Z');
+    tx.instagramPost.findUnique.mockResolvedValue({
+      id: 'post-internal',
+      instagramProfileId: 'profile-internal',
+    });
+    tx.instagramPost.findMany.mockResolvedValue([]);
+    await saveProfileCollection(input, client);
+    expect(tx.instagramPostMetricSnapshot.create).not.toHaveBeenCalled();
   });
 });

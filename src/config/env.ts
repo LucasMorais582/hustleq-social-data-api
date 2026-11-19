@@ -2,6 +2,14 @@ import 'dotenv/config';
 import { z } from 'zod';
 
 const envSchema = z.object({
+  CRON_SECRET: z.preprocess(
+    (value) => (value === '' ? undefined : value),
+    z.string().min(32).optional(),
+  ),
+  INSTAGRAM_REFRESH_ENABLED: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
   JWT_SECRET: z.string().min(32),
   JWT_ISSUER: z.string().min(1).default('hustleq'),
   JWT_AUDIENCE: z.string().min(1).default('hustleq-social-data-api'),

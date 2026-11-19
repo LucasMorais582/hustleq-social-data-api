@@ -9,6 +9,7 @@ vi.mock('../src/provider/apify/apify.provider.js', () => ({ fetchInstagramProfil
 vi.mock('../src/modules/instagram/profile/instagram.profile.repository.js', () => ({
   saveProfileCollection,
 }));
+import { getInstagramProfile } from '../src/modules/instagram/profile/instagram.profile.service.js';
 import { buildApp } from '../src/app.js';
 
 function profile() {
@@ -122,5 +123,26 @@ describe('profile/search persistence integration', () => {
     const response = await request();
     expect(response.statusCode).toBe(200);
     expect(saveProfileCollection.mock.calls[0]![0].posts).toEqual([]);
+  });
+  it('does not persist a reused username that resolves to a different external ID', async () => {
+    fetchInstagramProfile.mockResolvedValue(profile());
+    await expect(
+      getInstagramProfile(
+        { username: 'example' },
+        { expectedInstagramId: 'different-id', refreshMetricsSince: new Date() },
+      ),
+    ).rejects.toThrow('outro perfil');
+    expect(saveProfileCollection).not.toHaveBeenCalled();
+  });
+  it('passes scheduled refresh options only for the internal collection', async () => {
+    fetchInstagramProfile.mockResolvedValue(profile());
+    saveProfileCollection.mockResolvedValue({ instagramProfileId: 'internal' });
+    const since = new Date();
+    await getInstagramProfile(
+      { username: 'example' },
+      { expectedInstagramId: 'external-profile', refreshMetricsSince: since },
+    );
+    expect(fetchInstagramProfile).toHaveBeenCalledWith('example', { timeout: 60, waitSecs: 70 });
+    expect(saveProfileCollection.mock.calls[0]![0].refreshMetricsSince).toBe(since);
   });
 });

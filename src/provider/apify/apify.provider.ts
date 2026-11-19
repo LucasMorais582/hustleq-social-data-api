@@ -11,9 +11,13 @@ async function readActorResults(
   actor: string,
   input: Record<string, unknown>,
   limit?: number,
+  execution?: { timeout: number; waitSecs: number },
 ) {
   try {
-    const run = await client.actor(actor).call(input);
+    const actorClient = client.actor(actor);
+    const run = execution
+      ? await actorClient.call(input, execution)
+      : await actorClient.call(input);
     if (run.status !== 'SUCCEEDED') {
       throw providerFailure(
         run.statusMessage || `A execução da Apify terminou com status ${run.status}`,
@@ -50,12 +54,21 @@ async function readActorResults(
 }
 
 //Consumo da api de Profile do Apify
-export async function fetchInstagramProfile(username: string) {
+export async function fetchInstagramProfile(
+  username: string,
+  execution?: { timeout: number; waitSecs: number },
+) {
   const client = createApifyClient();
 
-  const items = await readActorResults(client, 'apify/instagram-profile-scraper', {
-    usernames: [username],
-  });
+  const items = await readActorResults(
+    client,
+    'apify/instagram-profile-scraper',
+    {
+      usernames: [username],
+    },
+    undefined,
+    execution,
+  );
 
   const rawItem = items[0];
 

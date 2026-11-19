@@ -157,3 +157,63 @@ Trends continua exclusivamente para visualização, sem persistência. O agendam
 diário às 6h de `America/New_York` foi solicitado e confirmado, mas será uma etapa
 separada: ainda não há cron ativo nem coleta automática neste commit. A rotina
 deve usar o fuso nomeado para acompanhar o horário de verão, não um UTC fixo.
+
+## Etapa 5 — rotina diária simples no Vercel
+
+A rotina percorre todos os InstagramProfile salvos. `GET /api/cron/instagram-refresh`
+é protegido por `Authorization: Bearer <CRON_SECRET>` (não é o JWT do usuário).
+O endpoint é desabilitado por padrão: configurar `INSTAGRAM_REFRESH_ENABLED=true`
+e um `CRON_SECRET` aleatório de pelo menos 32 caracteres no deploy antes de ativar.
+A execução é aguardada; não há processamento em background após responder HTTP.
+
+`vercel.json` define dois disparos diários, às 10h e 11h UTC. A aplicação verifica
+`America/New_York` e ignora o disparo que não estiver na janela das 6h locais.
+Isso acompanha o horário de verão. No Hobby, a execução pode ocorrer entre 6h e
+6h59; no Pro, a precisão é por minuto. A configuração usa duas expressões diárias,
+não uma expressão que dispara duas vezes por dia (incompatível com Hobby).
+As definições do cron somente são ativadas após deploy de produção no Vercel.
+
+Para cada perfil, a rotina limita a execução do Actor a 60 segundos e a espera a
+70 segundos. Compara o ID externo com o perfil salvo, impedindo gravar dados de
+outra conta que tenha assumido o username. A coleta usa o Actor de perfil existente;
+não faz uma segunda coleta de posts. Posts não retornados pelo Actor não têm suas
+métricas artificialmente copiadas para uma nova coleta.
+
+Na transação, os dez posts salvos com datas conhecidas mais recentes são selecionados
+por data decrescente (desempate por ID). Somente os que também vieram na coleta
+recebem métricas atuais. Posts novos recebem o primeiro snapshot, mesmo se estiverem
+fora dos dez, conforme a regra de descoberta. Uma repetição da rotina na mesma
+janela das 6h não duplica snapshots já registrados nessa janela.
+
+O intervalo mínimo de 24 horas dos snapshots de perfil foi preservado. Uma coleta
+manual recente pode impedir outro snapshot às 6h. Na entrada do horário de verão,
+dois disparos às 6h locais podem estar separados por 23 horas: nesse caso o snapshot
+do perfil é adiado, enquanto as métricas dos posts seguem a janela diária.
+
+### Limitações da versão simples escolhida
+
+Não há tabela de execuções, fila, callback ou retomada durável. Há uma trava somente
+no processo atual; instâncias diferentes ainda podem iniciar coletas simultâneas e
+consumir créditos duplicados. As transações serializáveis protegem os snapshots no
+banco, mas não evitam o custo dessas chamadas externas. Repetir manualmente o cron
+pode iniciar uma nova coleta paga, mesmo quando os snapshots já estão atualizados.
+
+O handler solicita `maxDuration: 300`; confirmar suporte/configuração de Fluid
+Compute no projeto Vercel. A rotina deixa de iniciar outro perfil após 180 segundos,
+reservando tempo para terminar a coleta atual. Ela não oferece capacidade ilimitada:
+a lista pode ficar incompleta em caso de muitos perfis, chamadas lentas, limite de
+créditos ou timeout da plataforma. Se houver falhas ou perfis pendentes, retorna 503,
+`REFRESH_INCOMPLETE`, com contagens e códigos por perfil. Uma recusa 429 da Apify
+interrompe o lote para não continuar fazendo chamadas recusadas. Não há retry
+agendado automático nesta versão. Sucessos parciais já gravados são preservados.
+
+Verificações: autenticação do cron, horário de verão, execução fora da janela,
+falhas parciais, limite de tempo e atualização dos dez posts têm testes simulados.
+Não iniciar o cron de produção durante os testes, pois ele consome créditos Apify.
+
+Teste real da etapa 5 concluído no PostgreSQL de desenvolvimento, após repetir
+uma tentativa que falhou por conexão: os dez posts mais recentes receberam um
+novo snapshot, os posts nas posições 11 e 12 mantiveram apenas o anterior e uma
+segunda execução não duplicou métricas na mesma janela. O snapshot de perfil
+respeitou as 24 horas. A transação de teste foi revertida e a ausência de registros
+de teste foi confirmada. Nenhuma execução Apify foi iniciada nesse teste.

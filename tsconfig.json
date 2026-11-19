@@ -16,6 +16,6 @@
     "exactOptionalPropertyTypes": true,
     "types": ["node", "vitest/globals"]
   },
-  "include": ["server.ts", "src/**/*.ts", "tests/**/*.ts"],
+  "include": ["server.ts", "api/**/*.ts", "src/**/*.ts", "tests/**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }

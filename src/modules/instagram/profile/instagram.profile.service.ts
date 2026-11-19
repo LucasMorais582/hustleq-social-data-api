@@ -9,8 +9,18 @@ import { fetchInstagramProfile } from '../../../provider/apify/apify.provider.js
 import { type profileRequest } from '../global-schemas/instagram.username.schemas.js';
 import { instagramProviderProfileSchema } from './instagram.profile.schemas.js';
 
-export async function getInstagramProfile(request: profileRequest) {
-  const rawItem = await fetchInstagramProfile(request.username);
+interface ScheduledProfileRefresh {
+  expectedInstagramId: string;
+  refreshMetricsSince: Date;
+}
+
+export async function getInstagramProfile(
+  request: profileRequest,
+  scheduled?: ScheduledProfileRefresh,
+) {
+  const rawItem = scheduled
+    ? await fetchInstagramProfile(request.username, { timeout: 60, waitSecs: 70 })
+    : await fetchInstagramProfile(request.username);
 
   if (!rawItem) throw new ProfileLookupError('PROFILE_NOT_FOUND');
   const statusResult = z
@@ -41,6 +51,13 @@ export async function getInstagramProfile(request: profileRequest) {
       'A Apify retornou um perfil em formato inválido',
     );
   const item = result.data;
+  if (scheduled && item.id !== scheduled.expectedInstagramId) {
+    throw new ProviderError(
+      503,
+      'PROVIDER_INVALID_RESPONSE',
+      'O username passou a identificar outro perfil do Instagram',
+    );
+  }
 
   const profile = {
     id: item.id,
@@ -103,7 +120,11 @@ export async function getInstagramProfile(request: profileRequest) {
     }),
   };
   try {
-    await saveProfileCollection(collection);
+    await saveProfileCollection(
+      scheduled
+        ? { ...collection, refreshMetricsSince: scheduled.refreshMetricsSince }
+        : collection,
+    );
   } catch {
     throw new PersistenceError();
   }

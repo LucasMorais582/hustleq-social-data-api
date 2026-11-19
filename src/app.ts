@@ -1,3 +1,4 @@
+import { instagramRefreshRoutes } from './modules/instagram/refresh/instagram.refresh.routes.js';
 import { PersistenceError } from './errors/persistence.error.js';
 import { ProviderError } from './errors/provider.error.js';
 import jwt from '@fastify/jwt';
@@ -63,6 +64,7 @@ export function buildApp() {
     transformSpecification: (swaggerObject) => swaggerObject,
   });
 
+  app.register(instagramRefreshRoutes, { prefix: '/api' });
   app.register(healthRoutes, { prefix: '/api/v1' });
   app.register(getProfileInstagram, { prefix: '/api/v1' });
   app.register(getPostInstagram, { prefix: '/api/v1' });
