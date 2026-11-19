@@ -33,7 +33,7 @@ describe('POST /api/v1/instagram/profile/search', () => {
       payload: { username: 'example' },
     });
     expect(response.statusCode).toBe(404);
-    expect(response.json()).toMatchObject({ statusCode: 404, code });
+    expect(response.json().error).toMatchObject({ code });
   });
 
   it('does not classify provider failures as missing profiles', async () => {
@@ -46,7 +46,7 @@ describe('POST /api/v1/instagram/profile/search', () => {
       payload: { username: 'example' },
     });
     expect(response.statusCode).toBe(503);
-    expect(response.json()).not.toHaveProperty('code', 'PROFILE_NOT_FOUND');
+    expect(response.json().error.code).toBe('PROVIDER_UNAVAILABLE');
   });
 
   it('keeps the public profile response', async () => {
@@ -88,6 +88,6 @@ describe('POST /api/v1/instagram/profile/search', () => {
       payload: { username: 'example' },
     });
     expect(response.statusCode).toBe(503);
-    expect(response.json().code).toBe('PROVIDER_INVALID_RESPONSE');
+    expect(response.json().error.code).toBe('PROVIDER_UNAVAILABLE');
   });
 });

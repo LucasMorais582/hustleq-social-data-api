@@ -36,16 +36,16 @@ describe('Apify failure contracts', () => {
     {
       message: 'Free tier: please wait 29 more minute(s)',
       statusCode: 429,
-      code: 'PROVIDER_RATE_LIMITED',
+      code: 'RATE_LIMITED',
     },
-    { message: 'Daily limit exceeded', statusCode: 429, code: 'PROVIDER_RATE_LIMITED' },
+    { message: 'Daily limit exceeded', statusCode: 429, code: 'RATE_LIMITED' },
     { message: 'No matching posts', statusCode: 503, code: 'PROVIDER_UNAVAILABLE' },
   ])('surfaces notice-only execution: $message', async ({ message, statusCode, code }) => {
     call.mockResolvedValue({ status: 'SUCCEEDED', defaultDatasetId: 'dataset' });
     listItems.mockResolvedValue({ items: [{ recordType: 'notice', message }] });
     const response = await request();
     expect(response.statusCode).toBe(statusCode);
-    expect(response.json()).toMatchObject({ statusCode, code, message });
+    expect(response.json().error).toMatchObject({ code, message });
     expect(response.json()).not.toHaveProperty('response');
   });
 
@@ -59,7 +59,7 @@ describe('Apify failure contracts', () => {
       });
       const response = await request();
       expect(response.statusCode).toBe(503);
-      expect(response.json()).toMatchObject({
+      expect(response.json().error).toMatchObject({
         code: 'PROVIDER_UNAVAILABLE',
         message: 'Actor stopped',
       });
@@ -74,7 +74,7 @@ describe('Apify failure contracts', () => {
     });
     const response = await request();
     expect(response.statusCode).toBe(429);
-    expect(response.json().code).toBe('PROVIDER_RATE_LIMITED');
+    expect(response.json().error.code).toBe('RATE_LIMITED');
   });
 
   it.each([429, 403, 500])('maps upstream HTTP %i to a provider error', async (upstreamStatus) => {
@@ -83,7 +83,7 @@ describe('Apify failure contracts', () => {
     );
     const response = await request();
     expect(response.statusCode).toBe(upstreamStatus === 429 ? 429 : 503);
-    expect(response.json().message).toBe('Apify rejected this request');
+    expect(response.json().error.message).toBe('Apify rejected this request');
   });
 
   it('maps dataset read failures to 503', async () => {
@@ -91,7 +91,7 @@ describe('Apify failure contracts', () => {
     listItems.mockRejectedValue(new Error('Dataset unavailable'));
     const response = await request();
     expect(response.statusCode).toBe(503);
-    expect(response.json().message).toBe('Dataset unavailable');
+    expect(response.json().error.message).toBe('Dataset unavailable');
   });
 
   it('does not return partial success when a rate-limit notice accompanies posts', async () => {
@@ -107,7 +107,7 @@ describe('Apify failure contracts', () => {
     call.mockResolvedValue({ status: 'SUCCEEDED' });
     const response = await request();
     expect(response.statusCode).toBe(503);
-    expect(response.json().code).toBe('PROVIDER_INVALID_RESPONSE');
+    expect(response.json().error.code).toBe('PROVIDER_UNAVAILABLE');
   });
 
   it.each([null, { recordType: 'post', postId: '1', type: 'unexpected' }])(
@@ -117,7 +117,7 @@ describe('Apify failure contracts', () => {
       listItems.mockResolvedValue({ items: [record] });
       const response = await request();
       expect(response.statusCode).toBe(503);
-      expect(response.json().code).toBe('PROVIDER_INVALID_RESPONSE');
+      expect(response.json().error.code).toBe('PROVIDER_UNAVAILABLE');
     },
   );
 

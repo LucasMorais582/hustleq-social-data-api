@@ -1,7 +1,6 @@
-import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
-import { z } from 'zod/v4';
-import { authenticate } from '../../../auth/authenticate.js';
+import { authenticate, authenticatedUserId } from '../../../auth/authenticate.js';
 import {
   competitorParamsSchema,
   competitorRelationParamsSchema,
@@ -16,9 +15,6 @@ import {
   endInstagramCompetitor,
 } from './instagram.competitors.service.js';
 
-function subject(request: FastifyRequest) {
-  return z.object({ sub: z.string().min(1) }).parse(request.user).sub;
-}
 export async function instagramCompetitorRoutes(app: FastifyInstance) {
   const route = app.withTypeProvider<ZodTypeProvider>();
   const path = '/instagram/profiles/:instagramProfileId/competitors';
@@ -33,7 +29,7 @@ export async function instagramCompetitorRoutes(app: FastifyInstance) {
       response: await previewInstagramCompetitor(
         request.params.instagramProfileId,
         request.body.username,
-        subject(request),
+        authenticatedUserId(request),
       ),
     }),
   );
@@ -48,7 +44,7 @@ export async function instagramCompetitorRoutes(app: FastifyInstance) {
         response: await confirmInstagramCompetitor(
           request.params.instagramProfileId,
           request.body.confirmationToken,
-          subject(request),
+          authenticatedUserId(request),
         ),
       }),
   );

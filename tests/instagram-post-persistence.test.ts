@@ -70,8 +70,8 @@ describe('post/search persistence integration', () => {
     fetchInstagramPost.mockResolvedValue([post()]);
     savePostCollection.mockRejectedValue(new Error('database credentials or SQL details'));
     const response = await request();
-    expect(response.statusCode).toBe(503);
-    expect(response.json().code).toBe('PERSISTENCE_FAILED');
+    expect(response.statusCode).toBe(500);
+    expect(response.json().error.code).toBe('INTERNAL_ERROR');
     expect(response.body).not.toContain('SQL details');
   });
   it.each([{ id: null }, { ownerId: null }])(
@@ -88,7 +88,7 @@ describe('post/search persistence integration', () => {
     fetchInstagramPost.mockResolvedValue([post(), { ...post(), id: 'bad', likesCount: -1 }]);
     const response = await request();
     expect(response.statusCode).toBe(503);
-    expect(response.json().code).toBe('PROVIDER_INVALID_RESPONSE');
+    expect(response.json().error.code).toBe('PROVIDER_UNAVAILABLE');
     expect(savePostCollection).not.toHaveBeenCalled();
   });
   it('preserves zero play counts instead of falling back to views', async () => {

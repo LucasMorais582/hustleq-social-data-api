@@ -25,7 +25,7 @@ describe('JWT Bearer authentication', () => {
     app = buildApp();
     const response = await app.inject({ method: 'POST', url, payload: {} });
     expect(response.statusCode).toBe(401);
-    expect(response.json().code).toBe('UNAUTHORIZED');
+    expect(response.json().error.code).toBe('UNAUTHENTICATED');
     expect(response.headers['www-authenticate']).toBe('Bearer');
     expect(call).not.toHaveBeenCalled();
   });

@@ -117,7 +117,7 @@ describe('competitor preview and explicit confirmation', () => {
     const token = (await preview()).json().response.confirmationToken;
     const result = await confirm(`x${token}`);
     expect(result.statusCode).toBe(400);
-    expect(result.json().code).toBe('COMPETITOR_CONFIRMATION_INVALID');
+    expect(result.json().error.code).toBe('INVALID_REQUEST');
     expect(store.saveIdentity).not.toHaveBeenCalled();
   });
   it.each(['different-profile', 'different-subject'])('binds confirmation to %s', async (mode) => {
@@ -160,15 +160,17 @@ describe('competitor preview and explicit confirmation', () => {
       fetchProfile.mockResolvedValue(item);
       const response = await preview();
       expect(response.statusCode).toBe(404);
-      expect(response.json().code).toBe(item?.private ? 'PROFILE_PRIVATE' : 'PROFILE_NOT_FOUND');
+      expect(response.json().error.code).toBe(
+        item?.private ? 'PROFILE_PRIVATE' : 'PROFILE_NOT_FOUND',
+      );
       expect(store.saveIdentity).not.toHaveBeenCalled();
     },
   );
   it('rejects self-reference on preview and confirmation', async () => {
     store.profileInstagramId.mockResolvedValue('external');
-    expect((await preview()).json().code).toBe('COMPETITOR_SELF_REFERENCE');
+    expect((await preview()).json().error.code).toBe('INVALID_REQUEST');
     const token = createCompetitorConfirmation('source', 'test-client', identity).confirmationToken;
-    expect((await confirm(token)).json().code).toBe('COMPETITOR_SELF_REFERENCE');
+    expect((await confirm(token)).json().error.code).toBe('INVALID_REQUEST');
     expect(store.saveIdentity).not.toHaveBeenCalled();
   });
   it('requires a saved monitoring profile before spending on lookup', async () => {
@@ -180,7 +182,7 @@ describe('competitor preview and explicit confirmation', () => {
     fetchProfile.mockRejectedValue(new ProviderError(429, 'PROVIDER_RATE_LIMITED', 'Please wait'));
     const response = await preview();
     expect(response.statusCode).toBe(429);
-    expect(response.json().message).toBe('Please wait');
+    expect(response.json().error.message).toBe('Please wait');
   });
   it.each(['?limit=101', '?page=0', '?status=unknown'])(
     'rejects list parameters %s',
@@ -209,8 +211,8 @@ describe('competitor preview and explicit confirmation', () => {
     else store.countActive.mockResolvedValue(3);
     const response = await confirm(token);
     expect(response.statusCode).toBe(409);
-    expect(response.json().code).toBe(
-      mode === 'duplicate' ? 'COMPETITOR_ALREADY_ACTIVE' : 'COMPETITOR_LIMIT_REACHED',
+    expect(response.json().error.code).toBe(
+      mode === 'duplicate' ? 'COMPETITOR_ALREADY_REGISTERED' : 'COMPETITOR_LIMIT_REACHED',
     );
     expect(store.create).not.toHaveBeenCalled();
   });
@@ -218,8 +220,8 @@ describe('competitor preview and explicit confirmation', () => {
     const token = (await preview()).json().response.confirmationToken;
     store.saveIdentity.mockRejectedValue(new Error('password-sensitive SQL details'));
     const response = await confirm(token);
-    expect(response.statusCode).toBe(503);
-    expect(response.json().code).toBe('PERSISTENCE_FAILED');
+    expect(response.statusCode).toBe(500);
+    expect(response.json().error.code).toBe('INTERNAL_ERROR');
     expect(response.body).not.toContain('password-sensitive');
     expect(store.create).not.toHaveBeenCalled();
   });

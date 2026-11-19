@@ -98,8 +98,8 @@ describe('profile/search persistence integration', () => {
     fetchInstagramProfile.mockResolvedValue(profile());
     saveProfileCollection.mockRejectedValue(new Error('secret database internals'));
     const response = await request();
-    expect(response.statusCode).toBe(503);
-    expect(response.json().code).toBe('PERSISTENCE_FAILED');
+    expect(response.statusCode).toBe(500);
+    expect(response.json().error.code).toBe('INTERNAL_ERROR');
     expect(response.body).not.toContain('secret database internals');
   });
   it.each([null, { private: true }, { error: 'not_found' }, { id: 'invalid' }])(

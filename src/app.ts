@@ -1,3 +1,4 @@
+import { ApiError, sendApiError } from './errors/api.error.js';
 import { instagramCompetitorRoutes } from './modules/instagram/competitors/instagram.competitors.routes.js';
 import { CompetitorError } from './modules/instagram/competitors/instagram.competitors.errors.js';
 import { ProfileLookupError } from './modules/instagram/profile/instagram.profile.errors.js';
@@ -25,28 +26,57 @@ export function buildApp() {
 
   app.register(jwt, {
     secret: env.JWT_SECRET,
-    sign: { algorithm: 'HS256', iss: env.JWT_ISSUER, aud: env.JWT_AUDIENCE, expiresIn: '1h' },
+    sign: { algorithm: 'HS256', iss: env.JWT_ISSUER, aud: env.JWT_AUDIENCE, expiresIn: '5m' },
     verify: {
       algorithms: ['HS256'],
       allowedIss: env.JWT_ISSUER,
       allowedAud: env.JWT_AUDIENCE,
-      requiredClaims: ['exp', 'sub'],
+      requiredClaims: ['exp', 'sub', 'iat'],
     },
   });
 
-  app.setErrorHandler((error, _request, reply) => {
-    if (
-      error instanceof ProviderError ||
-      error instanceof PersistenceError ||
-      error instanceof CompetitorError ||
-      error instanceof ProfileLookupError
-    ) {
-      return reply
-        .status(error.statusCode)
-        .send({ statusCode: error.statusCode, code: error.code, message: error.message });
+  app.setErrorHandler((error, request, reply) => {
+    if (error instanceof ApiError) {
+      return sendApiError(reply, error.statusCode, error.code, error.message);
     }
-    return reply.send(error);
+    if (error instanceof ProviderError) {
+      return sendApiError(
+        reply,
+        error.statusCode,
+        error.statusCode === 429 ? 'RATE_LIMITED' : 'PROVIDER_UNAVAILABLE',
+        error.message,
+      );
+    }
+    if (error instanceof CompetitorError || error instanceof ProfileLookupError) {
+      const codes: Record<string, string> = {
+        COMPETITOR_ALREADY_ACTIVE: 'COMPETITOR_ALREADY_REGISTERED',
+        COMPETITOR_RELATION_NOT_FOUND: 'COMPETITOR_NOT_FOUND',
+        COMPETITOR_PROFILE_NOT_FOUND: 'PROFILE_NOT_FOUND',
+        COMPETITOR_SELF_REFERENCE: 'INVALID_REQUEST',
+        COMPETITOR_CONFIRMATION_INVALID: 'INVALID_REQUEST',
+      };
+      return sendApiError(reply, error.statusCode, codes[error.code] ?? error.code, error.message);
+    }
+    if (
+      error instanceof Error &&
+      ('validation' in error ||
+        ('statusCode' in error &&
+          typeof error.statusCode === 'number' &&
+          [400, 413, 415].includes(error.statusCode)))
+    ) {
+      return sendApiError(reply, 400, 'INVALID_REQUEST', 'Parâmetros da requisição inválidos');
+    }
+    request.log.error({ err: error }, 'Request failed');
+    return sendApiError(
+      reply,
+      500,
+      'INTERNAL_ERROR',
+      error instanceof PersistenceError ? error.message : 'Não foi possível concluir a operação',
+    );
   });
+  app.setNotFoundHandler((_request, reply) =>
+    sendApiError(reply, 404, 'NOT_FOUND', 'Rota não encontrada'),
+  );
 
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);

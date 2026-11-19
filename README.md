@@ -2,6 +2,11 @@
 
 Social Data API da HustleQ Beta.
 
+Auditoria do guia da MVP de 18/11/2026, diferenças de contrato e próximas etapas:
+[memória de implementação](docs/mvp-implementation-audit.md). As seções abaixo
+descrevem a implementação atual; não significam que o contrato completo da MVP
+já esteja entregue.
+
 ## Stack
 
 - Node.js 22+
@@ -96,9 +101,10 @@ Falhas operacionais do provedor não são convertidas em perfil inexistente.
 
 Todos os endpoints do Instagram exigem `Authorization: Bearer <JWT>`.
 Health, documentação e a raiz permanecem públicos. Tokens devem ser assinados
-com HS256, ter `sub` e `exp`, emissor `JWT_ISSUER` (padrão `hustleq`) e público
+com HS256, ter `sub`, `iat` e `exp`, emissor `JWT_ISSUER` (padrão `hustleq`) e público
 `JWT_AUDIENCE` (padrão `hustleq-social-data-api`). Tokens ausentes, inválidos ou
-expirados retornam 401 com `code: UNAUTHORIZED`.
+expirados retornam 401 com `error.code: UNAUTHENTICATED`. A duração máxima aceita
+é de cinco minutos (`exp - iat <= 300`); `iat` não pode estar no futuro.
 
 Configure `JWT_SECRET` com pelo menos 32 caracteres aleatórios no `.env` e no
 ambiente de deploy. Não use o token da Apify como segredo JWT. O serviço emissor
@@ -114,16 +120,16 @@ node --import tsx --input-type=module -e 'import { buildApp } from "./src/app.ts
 ```
 
 No Postman/Insomnia, selecione Bearer Token e use o token gerado. A validade
-padrão de emissão é de uma hora. O segredo é obrigatório também em deploy;
+padrão de emissão é de cinco minutos. O segredo é obrigatório também em deploy;
 sem ele, a aplicação falha na validação da configuração ao iniciar.
 
 ## Erros de coleta e contrato de mídia
 
 Execuções da Apify precisam terminar com status `SUCCEEDED` antes da leitura do
-dataset. Recusas por limite retornam 429, `code: PROVIDER_RATE_LIMITED`, com a
+dataset. Recusas por limite retornam 429, `error.code: RATE_LIMITED`, com a
 mensagem do provedor. Falhas, interrupções, timeout ou indisponibilidade retornam
-503, `code: PROVIDER_UNAVAILABLE`. Dados em formato inesperado retornam 503,
-`code: PROVIDER_INVALID_RESPONSE`. Nenhuma dessas situações é devolvida como
+503, `error.code: PROVIDER_UNAVAILABLE`. Dados em formato inesperado retornam 503,
+`error.code: PROVIDER_UNAVAILABLE`. Nenhuma dessas situações é devolvida como
 uma busca bem-sucedida sem posts.
 
 Em trends, um dataset composto somente por linhas `recordType: "notice"` retorna
@@ -205,12 +211,56 @@ InstagramProfile → InstagramProfile; não há criação de User nesta etapa.
    Repetir a remoção preserva o encerramento original. Reconfirmar uma busca
    depois do encerramento cria outra relação.
 
-Erros de negócio: 400 `COMPETITOR_SELF_REFERENCE` ou
-`COMPETITOR_CONFIRMATION_INVALID`; 409 `COMPETITOR_ALREADY_ACTIVE` ou
+Erros de negócio: 400 `INVALID_REQUEST` (autorreferência ou confirmação inválida); 409 `COMPETITOR_ALREADY_REGISTERED` ou
 `COMPETITOR_LIMIT_REACHED` (máximo de três ativos); 404
-`COMPETITOR_RELATION_NOT_FOUND` para relação ausente ou de outro perfil.
+`COMPETITOR_NOT_FOUND` para relação ausente ou de outro perfil.
 A confirmação revalida as regras dentro de uma transação serializável, inclusive
 se houver outras confirmações depois da busca. Falhas revertem toda a operação.
 
 Como User e sua integração com a HustleQ ainda estão em definição, estas rotas
 validam o JWT, mas ainda não verificam propriedade do perfil por usuário.
+
+## Adaptação MVP — etapa de autenticação e erros
+
+O backend principal é o único cliente da Social Data API. Nas rotas de usuário,
+o JWT deve usar `sub` com o ID do usuário HustleQ, sem claim `scope`. Não há
+tabela User local. Tokens com `scope: service` não acessam essas rotas.
+
+O guard `authenticateService` está preparado para as próximas rotas `/internal`:
+exige `sub: "hustleq-main"` e `scope: "service"`, além das mesmas verificações de
+assinatura, emissor, audiência e validade máxima de cinco minutos. Token válido
+com papel inadequado retorna 403 FORBIDDEN; ausente ou inválido retorna 401
+UNAUTHENTICATED. As rotas de convites/internal ainda não foram criadas nesta etapa.
+
+O formato dos erros das rotas de negócio passou a ser:
+
+```json
+{
+  "error": {
+    "code": "UNAUTHENTICATED",
+    "message": "Token Bearer ausente, inválido ou expirado",
+    "time": "2026-11-19T12:00:00.000Z"
+  }
+}
+```
+
+Validação de entrada retorna 400 INVALID_REQUEST. Limite do provider retorna
+429 RATE_LIMITED; indisponibilidade/resposta inválida do provider retorna
+503 PROVIDER_UNAVAILABLE. Falhas internas de persistência retornam 500
+INTERNAL_ERROR, sem expor credenciais, SQL ou stack no corpo. Falhas de negócio
+preservam seu status com os códigos do contrato: por exemplo,
+COMPETITOR_ALREADY_REGISTERED e COMPETITOR_NOT_FOUND. A rota legada de cron
+continua com CRON_SECRET e seu contrato anterior até a migração dos jobs.
+
+As verificações reutilizáveis de leitura OWNER/COMPETITOR foram preparadas em
+`src/auth/instagram-access.ts`, com base em ownerUserId e em relações ativas
+pertencentes a perfis do usuário. Elas serão ligadas às novas leituras do banco
+quando esses endpoints forem criados. As rotas legadas de coleta/concorrentes
+continuam temporariamente com autenticação JWT, sem autorização por proprietário;
+ainda não estão no contrato completo da MVP. Não liberar a integração de produção
+como se essa migração já estivesse concluída.
+
+Decisões confirmadas: manter IDs internos string CUID, sem conversão de IDs
+existentes para UUID; seguir dois refreshes por conta no backend principal e
+um teto configurável de dez por usuário nesta API. O teto e o refresh ainda
+serão implementados na etapa própria; não há alteração de cota nesta entrega.

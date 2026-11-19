@@ -7,7 +7,8 @@ export function authHeaders(overrides: Record<string, unknown> = {}) {
       sub: 'test-client',
       iss: 'hustleq',
       aud: 'hustleq-social-data-api',
-      exp: Math.floor(Date.now() / 1000) + 3600,
+      iat: Math.floor(Date.now() / 1000),
+      exp: Math.floor(Date.now() / 1000) + 300,
       ...overrides,
     }),
   ).toString('base64url');
