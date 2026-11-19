@@ -217,3 +217,19 @@ novo snapshot, os posts nas posições 11 e 12 mantiveram apenas o anterior e um
 segunda execução não duplicou métricas na mesma janela. O snapshot de perfil
 respeitou as 24 horas. A transação de teste foi revertida e a ausência de registros
 de teste foi confirmada. Nenhuma execução Apify foi iniciada nesse teste.
+
+## Etapa 6 — concorrentes com confirmação
+
+Usa os modelos existentes, sem migration adicional. A busca de username é somente
+consulta. Um comprovante assinado de dez minutos carrega a identidade conferida;
+a confirmação explícita salva/reutiliza InstagramProfile pelo instagramId e cria
+InstagramCompetitor na mesma transação serializável. ownerUserId não é preenchido.
+Não cria snapshots nem posts; os perfis confirmados passam a integrar a rotina
+existente que coleta todos os perfis salvos. Mesmo após encerrar uma relação,
+o perfil e o histórico permanecem no banco e continuam sujeitos a essa rotina.
+
+A transação verifica autorreferência, duplicidade ativa e limite de três ativos.
+Conflitos P2034/P2002 têm até três tentativas, com nova validação das regras.
+DELETE encerra somente a relação pertencente ao perfil indicado e mantém endedAt
+original em repetições. Reentrada cria outra linha. A listagem separa ativos,
+encerrados ou todos, com paginação. Autorização por proprietário aguarda o User.

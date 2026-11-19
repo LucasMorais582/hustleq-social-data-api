@@ -1,3 +1,6 @@
+import { instagramCompetitorRoutes } from './modules/instagram/competitors/instagram.competitors.routes.js';
+import { CompetitorError } from './modules/instagram/competitors/instagram.competitors.errors.js';
+import { ProfileLookupError } from './modules/instagram/profile/instagram.profile.errors.js';
 import { instagramRefreshRoutes } from './modules/instagram/refresh/instagram.refresh.routes.js';
 import { PersistenceError } from './errors/persistence.error.js';
 import { ProviderError } from './errors/provider.error.js';
@@ -32,7 +35,12 @@ export function buildApp() {
   });
 
   app.setErrorHandler((error, _request, reply) => {
-    if (error instanceof ProviderError || error instanceof PersistenceError) {
+    if (
+      error instanceof ProviderError ||
+      error instanceof PersistenceError ||
+      error instanceof CompetitorError ||
+      error instanceof ProfileLookupError
+    ) {
       return reply
         .status(error.statusCode)
         .send({ statusCode: error.statusCode, code: error.code, message: error.message });
@@ -64,6 +72,7 @@ export function buildApp() {
     transformSpecification: (swaggerObject) => swaggerObject,
   });
 
+  app.register(instagramCompetitorRoutes, { prefix: '/api/v1' });
   app.register(instagramRefreshRoutes, { prefix: '/api' });
   app.register(healthRoutes, { prefix: '/api/v1' });
   app.register(getProfileInstagram, { prefix: '/api/v1' });

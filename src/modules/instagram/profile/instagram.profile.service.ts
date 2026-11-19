@@ -14,7 +14,7 @@ interface ScheduledProfileRefresh {
   refreshMetricsSince: Date;
 }
 
-export async function getInstagramProfile(
+export async function lookupInstagramProfile(
   request: profileRequest,
   scheduled?: ScheduledProfileRefresh,
 ) {
@@ -58,6 +58,15 @@ export async function getInstagramProfile(
       'O username passou a identificar outro perfil do Instagram',
     );
   }
+
+  return item;
+}
+
+export async function getInstagramProfile(
+  request: profileRequest,
+  scheduled?: ScheduledProfileRefresh,
+) {
+  const item = await lookupInstagramProfile(request, scheduled);
 
   const profile = {
     id: item.id,

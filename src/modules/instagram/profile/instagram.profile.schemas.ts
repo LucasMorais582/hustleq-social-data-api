@@ -14,6 +14,7 @@ export const instagramProviderProfileSchema = z.object({
   followsCount: count,
   postsCount: count,
   profilePicUrlHD: z.url().nullish(),
+  profilePicUrl: z.url().nullish(),
 
   latestPosts: z.array(
     z.object({

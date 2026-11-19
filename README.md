@@ -158,3 +158,59 @@ Detalhes de horários, limites do Vercel e da versão simples estão em
 [prisma/README.md](prisma/README.md#etapa-5--rotina-diária-simples-no-vercel).
 Ela atualiza métricas coletadas dos dez posts mais recentes e conserva os snapshots
 anteriores. Não cria User, não grava trends nem adiciona tabela de controle.
+
+### Concorrentes: busca e confirmação
+
+Todas as rotas abaixo exigem o JWT de acesso em `Authorization: Bearer <token>`.
+`{profileId}` é o **ID interno** de um `InstagramProfile` já salvo (coluna `id`
+no Supabase), não o `instagramId` nem o username. A relação continua sendo
+InstagramProfile → InstagramProfile; não há criação de User nesta etapa.
+
+1. `POST /api/v1/instagram/profiles/{profileId}/competitors/search`
+
+   ```json
+   { "username": "nome_do_concorrente" }
+   ```
+
+   Aceita `@` inicial. Consulta a Apify e devolve `response.profile` com
+   `instagramId`, `username`, `name`, `bio`, `profilePhoto`, `url`, `category`
+   e `isVerified`, além de `response.confirmationToken` e `response.expiresAt`.
+   Campos indisponíveis podem ser null. A foto usa a URL da Apify, sem upload.
+   A busca **não salva** o concorrente, posts, snapshots ou relação. Cada busca
+   consome uma consulta ao provider. Perfil inexistente ou privado devolve 404
+   com `PROFILE_NOT_FOUND` ou `PROFILE_PRIVATE`; falhas/limites do provider
+   preservam os erros 503/429 existentes.
+
+2. Depois da conferência, `POST /api/v1/instagram/profiles/{profileId}/competitors`
+
+   ```json
+   { "confirmed": true, "confirmationToken": "copie_o_token_da_busca" }
+   ```
+
+   Retorna 201 com `response` contendo a relação criada. O comprovante vale por
+   dez minutos e é vinculado ao perfil monitorador e ao `sub` do JWT de acesso.
+   Não é um token de autenticação. A confirmação não consulta novamente a Apify:
+   salva a identidade apresentada na busca, reutilizando o perfil pelo
+   `instagramId`, e cria a relação na mesma transação. Não atribui proprietário.
+   Não salva posts nem métricas nesta operação; a coleta normal e a rotina diária
+   continuam responsáveis por esses dados. Para cancelar, basta não confirmar;
+   `confirmed: false` ou ausente é rejeitado com 400.
+
+3. `GET /api/v1/instagram/profiles/{profileId}/competitors?status=active&page=1&limit=50`
+   lista as relações e a identidade atual do concorrente. `status` aceita
+   `active` (padrão), `ended` e `all`; `limit` vai de 1 a 100.
+
+4. `DELETE /api/v1/instagram/profiles/{profileId}/competitors/{relationId}`
+   encerra a relação preenchendo `endedAt`, sem apagar histórico ou perfil.
+   Repetir a remoção preserva o encerramento original. Reconfirmar uma busca
+   depois do encerramento cria outra relação.
+
+Erros de negócio: 400 `COMPETITOR_SELF_REFERENCE` ou
+`COMPETITOR_CONFIRMATION_INVALID`; 409 `COMPETITOR_ALREADY_ACTIVE` ou
+`COMPETITOR_LIMIT_REACHED` (máximo de três ativos); 404
+`COMPETITOR_RELATION_NOT_FOUND` para relação ausente ou de outro perfil.
+A confirmação revalida as regras dentro de uma transação serializável, inclusive
+se houver outras confirmações depois da busca. Falhas revertem toda a operação.
+
+Como User e sua integração com a HustleQ ainda estão em definição, estas rotas
+validam o JWT, mas ainda não verificam propriedade do perfil por usuário.
