@@ -1,3 +1,6 @@
+vi.mock('../src/modules/instagram/post/instagram.post.repository.js', () => ({
+  savePostCollection: vi.fn().mockResolvedValue(undefined),
+}));
 vi.mock('../src/modules/instagram/profile/instagram.profile.repository.js', () => ({
   saveProfileCollection: vi.fn().mockResolvedValue({ instagramProfileId: 'internal' }),
 }));

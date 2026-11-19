@@ -24,6 +24,7 @@ export const instagramProviderPostSchema = z.object({
   likesCount: z.number().nullish(),
   commentsCount: z.number().nullish(),
   videoPlayCount: z.number().nullish(),
+  videoViewCount: z.number().nullish(),
   hashtags: z.array(z.string()).nullish(),
   mentions: z.array(z.string()).nullish(),
   childPosts: z.array(z.record(z.string(), z.unknown())).nullish(),
@@ -33,3 +34,14 @@ export const instagramProviderPostSchema = z.object({
 });
 
 export type postRequestApify = z.infer<typeof instagramProviderPostSchema>;
+
+// Exige identidade real do post e do autor antes de gravar chaves estrangeiras.
+export const instagramPersistablePostSchema = instagramProviderPostSchema.extend({
+  id: z.string().trim().min(1),
+  ownerId: z.string().trim().min(1),
+  ownerUsername: z.string().trim().min(1).nullish(),
+  likesCount: z.int().min(0).max(2147483647).nullish(),
+  commentsCount: z.int().min(0).max(2147483647).nullish(),
+  videoPlayCount: z.int().nonnegative().nullish(),
+  videoViewCount: z.int().nonnegative().nullish(),
+});

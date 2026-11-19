@@ -130,3 +130,30 @@ coleta 1 ms antes de 24 horas não criou snapshot e a coleta no limite exato cri
 Os snapshots anteriores e o primeiro snapshot do post permaneceram intactos
 durante o teste. Após o rollback, não restaram registros de teste. O teste real
 usou dados sintéticos e não iniciou execução paga na Apify.
+
+## Etapa 4 — persistência condicional de post/search
+
+`post/search` continua permitindo consultar autores não cadastrados. A resposta
+HTTP mantém o formato e os identificadores externos. O repository consulta os
+IDs externos dos autores em `InstagramProfile`, dentro da transação, e só grava
+posts de autores existentes. Não cria nem atualiza perfis, não define proprietário
+HustleQ e não cria snapshots de métricas do perfil.
+
+Posts novos recebem seu primeiro snapshot de métricas junto com a gravação do
+conteúdo. Posts existentes têm o conteúdo atualizado sem duplicar o registro,
+sem mover o autor e sem acrescentar snapshots de métricas nesta etapa. Resultados
+repetidos com o mesmo ID são gravados uma vez; autores conflitantes causam erro.
+Posts sem os identificadores externos necessários continuam visíveis, mas não são
+candidatos à gravação. Contadores incompatíveis com o armazenamento são rejeitados
+antes de qualquer escrita. `videoPlayCount` tem prioridade sobre `videoViewCount`
+para o snapshot de visualizações, inclusive quando vale zero.
+
+A transação serializável repete conflitos no máximo três vezes. Se o banco estiver
+indisponível, a consulta aos autores também pode falhar: o endpoint retorna 503,
+`PERSISTENCE_FAILED`, em vez de assumir que o autor não existe. Dados de conexão
+ou SQL não são enviados ao cliente. O histórico permanece preservado.
+
+Trends continua exclusivamente para visualização, sem persistência. O agendamento
+diário às 6h de `America/New_York` foi solicitado e confirmado, mas será uma etapa
+separada: ainda não há cron ativo nem coleta automática neste commit. A rotina
+deve usar o fuso nomeado para acompanhar o horário de verão, não um UTC fixo.
