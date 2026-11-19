@@ -233,3 +233,56 @@ Conflitos P2034/P2002 têm até três tentativas, com nova validação das regra
 DELETE encerra somente a relação pertencente ao perfil indicado e mantém endedAt
 original em repetições. Reentrada cria outra linha. A listagem separa ativos,
 encerrados ou todos, com paginação. Autorização por proprietário aguarda o User.
+
+## Etapa 7 — campos da MVP, DiscoverCache e ProviderRun
+
+Migration aditiva: `20261119000000_add_mvp_tracking_and_cache`. Não remove nem
+recria tabelas existentes e não altera IDs, relações ou snapshots antigos.
+Os sete modelos usam IDs String com cuid(); nenhuma tabela User é criada.
+
+- InstagramProfile recebe reservedForInviteId, reservedUntil, monitoringUntil,
+  syncStatus (padrão pending) e lastSyncedAt. Perfis antigos ficam pending, com
+  datas novas nulas: a migration não fabrica um sync completo.
+- InstagramPost recebe lastCollectedAt, inicialmente nulo nos registros antigos.
+  Uma nova descoberta o preenche na mesma transação do primeiro snapshot.
+  A coleta diária só o avança quando grava uma métrica nova. Atualizar apenas
+  conteúdo não torna métricas antigas recentes.
+- InstagramPostMetricSnapshot recebe likesHidden (padrão false) e source anulável.
+  Por autorização do usuário, os snapshots anteriores à migration mantêm
+  source nulo. Novas descobertas via coleta legada usam initial; coletas diárias
+  usam daily, inclusive posts descobertos durante elas. on_open e refresh serão
+  acrescentados quando seus jobs forem implementados. Novas gravações existentes
+  já informam source explicitamente; o banco aceita null para preservar o legado.
+- DiscoverCache guarda key única, niche/city/query, results JSON e fetchedAt.
+  A normalização da chave, TTL e o endpoint Discover ainda não estão implementados.
+- ProviderRun guarda actor, apifyRunId, trigger, referências opcionais a perfil/post,
+  userId externo, items, costUsd Decimal(10,6), status, error e instantes. Não há
+  atribuição de custos nem criação automática de execuções nesta etapa. Custo
+  desconhecido fica null. Os índices cobrem usuário/mês e buscas de perfil/post
+  por status. Referências opcionais seguem o schema do guia, sem FK para User.
+
+Contagens desconhecidas continuam anuláveis, viewsCount permanece BigInt e
+as exclusões existentes continuam Restrict, preservando o histórico. O enum
+interno de mídia permanece photo/carousel/reel; a adaptação HTTP para os valores
+maiúsculos da MVP será feita na etapa de normalização. Não há mudança de quota,
+horário do cron, quantidade de posts, contrato HTTP ou fluxo de convites aqui.
+
+### Verificação opt-in da migration no PostgreSQL
+
+```bash
+RUN_DATABASE_TESTS=true npx vitest run tests/mvp-migration.integration.test.ts
+```
+
+Usa DIRECT_URL (ou DATABASE_URL), precisa de permissão para CREATE SCHEMA e testa
+as duas migrations em um schema aleatório isolado, dentro de uma transação.
+Cria dados legados antes da migration nova, verifica preservação/novas escritas,
+custo Decimal, source e frescor. Faz rollback e confirma que o schema de teste
+não ficou no banco. Não altera o schema public e não chama a Apify. O teste fica
+ignorado no npm test padrão, evitando acessar banco real em CI sem autorização.
+
+Etapa 7 validada e aplicada no Supabase de desenvolvimento: 270 testes locais,
+teste PostgreSQL opt-in, Prisma validate/generate, typecheck, lint, format:check
+e build passaram. O schema do banco corresponde ao Prisma (migrate diff sem
+diferenças). Os 14 snapshots existentes ficaram com source null; as duas tabelas
+novas estão vazias. Reinicie o servidor local para carregar o Prisma Client
+regenerado antes de testar novamente as rotas.

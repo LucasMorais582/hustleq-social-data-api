@@ -289,3 +289,29 @@ Os inventários acima representam a auditoria inicial; esta seção registra o
 progresso posterior. Validação concluída: 268 testes passaram; typecheck, lint,
 format:check e build passaram. Os testes novos usam provider/banco simulados;
 não comprovam desempenho ou integração em produção.
+
+## Etapa posterior B — modelagem e migration MVP
+
+Decisão do usuário: manter source = null nos snapshots já existentes, pois eram
+coletas de teste. Os registros são preservados, sem atribuir uma origem inventada.
+Novas gravações dos repositories existentes passam a informar initial ou daily.
+
+Schema ampliado para sete modelos, com campos de reserva/monitoramento/sync,
+lastCollectedAt, likesHidden/source, DiscoverCache e ProviderRun. Todos os IDs
+continuam String/cuid(), contagens desconhecidas continuam null, viewsCount
+continua BigInt e as FKs anteriores continuam Restrict. Datas novas no legado
+não recebem backfill; syncStatus começa pending. Não há tabela User.
+
+A migration é aditiva. lastCollectedAt passa a acompanhar somente a gravação de
+métricas, não atualizações isoladas de conteúdo. A nova modelagem ainda não cria
+rotas, cache, custos, controle de quota, jobs ou enriquecimento pelo Reel Scraper.
+O cron simples, seu horário e o limite de dez posts não foram alterados.
+
+Validação concluída: 270 testes locais passaram; o teste PostgreSQL opt-in passou
+separadamente e confirmou o rollback do schema isolado. Prisma validate/generate,
+typecheck, lint, format:check e build passaram. A migration foi aplicada ao
+Supabase de desenvolvimento após validação. Prisma migrate diff não detectou
+diferença entre banco e schema versionado. Verificação final: dois perfis,
+14 posts, 14 snapshots de métricas (todos com source null), DiscoverCache e
+ProviderRun vazios. Nenhuma coleta Apify foi executada. O teste opt-in fica
+ignorado por padrão no npm test para não acessar o banco automaticamente.

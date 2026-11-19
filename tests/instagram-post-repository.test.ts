@@ -57,12 +57,14 @@ describe('post collection repository', () => {
     expect(tx.instagramPost.upsert.mock.calls[0]![0].create).toMatchObject({
       instagramProfileId: 'internal-author',
       instagramPostId: 'external-post',
+      lastCollectedAt: collection().collectedAt,
     });
     expect(tx.instagramPost.upsert.mock.calls[0]![0].create).not.toHaveProperty('ownerInstagramId');
     expect(tx.instagramPost.upsert.mock.calls[0]![0].create).not.toHaveProperty('likesCount');
     expect(tx.instagramPostMetricSnapshot.create).toHaveBeenCalledWith({
       data: {
         instagramPostId: 'internal-post',
+        source: 'initial',
         likesCount: null,
         commentsCount: 2,
         viewsCount: 3000000000n,
@@ -94,6 +96,7 @@ describe('post collection repository', () => {
     await savePostCollection(collection(), client);
     expect(tx.instagramPost.upsert).toHaveBeenCalledTimes(1);
     expect(tx.instagramPostMetricSnapshot.create).not.toHaveBeenCalled();
+    expect(tx.instagramPost.upsert.mock.calls[0]![0].update).not.toHaveProperty('lastCollectedAt');
   });
   it('does not reassign a post already associated with another profile', async () => {
     const { tx, client } = fixture();

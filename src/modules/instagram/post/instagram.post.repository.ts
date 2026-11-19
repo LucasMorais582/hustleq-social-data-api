@@ -47,13 +47,14 @@ export async function savePostCollection(
             }
             const saved = await tx.instagramPost.upsert({
               where: { instagramPostId: post.instagramPostId },
-              create: { ...content, instagramProfileId },
+              create: { ...content, instagramProfileId, lastCollectedAt: collection.collectedAt },
               update: content,
             });
             if (!existing) {
               await tx.instagramPostMetricSnapshot.create({
                 data: {
                   instagramPostId: saved.id,
+                  source: 'initial',
                   likesCount,
                   commentsCount,
                   viewsCount,

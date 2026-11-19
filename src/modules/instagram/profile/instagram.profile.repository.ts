@@ -84,13 +84,18 @@ export async function saveProfileCollection(
             }
             const savedPost = await tx.instagramPost.upsert({
               where: { instagramPostId: post.instagramPostId },
-              create: { ...content, instagramProfileId: profile.id },
+              create: {
+                ...content,
+                instagramProfileId: profile.id,
+                lastCollectedAt: collection.collectedAt,
+              },
               update: content,
             });
             if (!existing) {
               await tx.instagramPostMetricSnapshot.create({
                 data: {
                   instagramPostId: savedPost.id,
+                  source: collection.refreshMetricsSince ? 'daily' : 'initial',
                   likesCount,
                   commentsCount,
                   viewsCount,
@@ -118,11 +123,16 @@ export async function saveProfileCollection(
               await tx.instagramPostMetricSnapshot.create({
                 data: {
                   instagramPostId: post.id,
+                  source: 'daily',
                   likesCount: metrics.likesCount,
                   commentsCount: metrics.commentsCount,
                   viewsCount: metrics.viewsCount,
                   collectedAt: collection.collectedAt,
                 },
+              });
+              await tx.instagramPost.update({
+                where: { id: post.id },
+                data: { lastCollectedAt: collection.collectedAt },
               });
             }
           }

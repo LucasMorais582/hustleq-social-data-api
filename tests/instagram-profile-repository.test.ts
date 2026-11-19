@@ -45,6 +45,7 @@ function fixture() {
     instagramProfile: { upsert: vi.fn().mockResolvedValue({ id: 'profile-internal' }) },
     instagramProfileSnapshot: { findFirst: vi.fn().mockResolvedValue(null), create: vi.fn() },
     instagramPost: {
+      update: vi.fn(),
       findMany: vi.fn().mockResolvedValue([]),
       findUnique: vi.fn().mockResolvedValue(null),
       upsert: vi.fn().mockResolvedValue({ id: 'post-internal' }),
@@ -82,6 +83,7 @@ describe('profile collection persistence', () => {
     expect(tx.instagramPostMetricSnapshot.create).toHaveBeenCalledWith({
       data: {
         instagramPostId: 'post-internal',
+        source: 'initial',
         likesCount: null,
         commentsCount: 1,
         viewsCount: 3000000000n,
@@ -117,6 +119,30 @@ describe('profile collection persistence', () => {
     await saveProfileCollection(collection(), client);
     expect(tx.instagramPost.upsert).toHaveBeenCalledTimes(1);
     expect(tx.instagramPostMetricSnapshot.create).not.toHaveBeenCalled();
+  });
+
+  it('does not make existing metrics look fresh when only content changes', async () => {
+    const { tx, client } = fixture();
+    tx.instagramPost.findUnique.mockResolvedValue({
+      id: 'post-internal',
+      instagramProfileId: 'profile-internal',
+    });
+    await saveProfileCollection(collection(), client);
+    expect(tx.instagramPost.upsert.mock.calls[0]![0].update).not.toHaveProperty('lastCollectedAt');
+    expect(tx.instagramPost.update).not.toHaveBeenCalled();
+  });
+
+  it('marks a post discovered during the daily collection with the daily source', async () => {
+    const { tx, client } = fixture();
+    const input = collection();
+    input.refreshMetricsSince = input.collectedAt;
+    await saveProfileCollection(input, client);
+    expect(tx.instagramPostMetricSnapshot.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ source: 'daily' }),
+    });
+    expect(tx.instagramPost.upsert.mock.calls[0]![0].create.lastCollectedAt).toEqual(
+      input.collectedAt,
+    );
   });
 
   it('never silently transfers posts between profiles', async () => {
@@ -173,10 +199,19 @@ describe('profile collection persistence', () => {
       }),
     );
     expect(tx.instagramPostMetricSnapshot.create).toHaveBeenCalledTimes(1);
+    expect(tx.instagramPostMetricSnapshot.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ source: 'daily' }),
+    });
+    expect(tx.instagramPost.update).toHaveBeenCalledWith({
+      where: { id: 'post-internal' },
+      data: { lastCollectedAt: input.collectedAt },
+    });
+    tx.instagramPost.update.mockClear();
     tx.instagramPostMetricSnapshot.create.mockClear();
     tx.instagramPostMetricSnapshot.findFirst.mockResolvedValue({ collectedAt: input.collectedAt });
     await saveProfileCollection(input, client);
     expect(tx.instagramPostMetricSnapshot.create).not.toHaveBeenCalled();
+    expect(tx.instagramPost.update).not.toHaveBeenCalled();
   });
   it('does not refresh existing posts outside the top ten', async () => {
     const { tx, client } = fixture();
@@ -189,5 +224,6 @@ describe('profile collection persistence', () => {
     tx.instagramPost.findMany.mockResolvedValue([]);
     await saveProfileCollection(input, client);
     expect(tx.instagramPostMetricSnapshot.create).not.toHaveBeenCalled();
+    expect(tx.instagramPost.update).not.toHaveBeenCalled();
   });
 });
