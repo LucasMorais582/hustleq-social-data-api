@@ -1,3 +1,4 @@
+import { serializeStoredPostMetric } from '../shared/instagram.metric.serialize.js';
 import { instagramUsernameSchema } from '../shared/instagram.provider.schemas.js';
 import { ApiError } from '../../../errors/api.error.js';
 import {
@@ -17,20 +18,8 @@ import {
   type StoredPostRead,
 } from './instagram.profile.read.repository.js';
 
-function publicViews(value: bigint | null) {
-  if (value === null) return null;
-  if (value < 0n || value > BigInt(Number.MAX_SAFE_INTEGER)) {
-    throw new ApiError(
-      500,
-      'INTERNAL_ERROR',
-      'A métrica salva excede a faixa numérica do contrato',
-    );
-  }
-  return Number(value);
-}
 export function serializeStoredInstagramPost(post: StoredPostRead) {
   const metric = post.metricSnapshots[0];
-  const likesHidden = metric ? metric.likesHidden || metric.likesCount === -1 : false;
   return {
     id: post.id,
     instagramPostId: post.instagramPostId,
@@ -43,15 +32,7 @@ export function serializeStoredInstagramPost(post: StoredPostRead) {
     timestamp: post.timestamp?.toISOString() ?? null,
     ownerUsername:
       post.ownerUsername === null ? null : instagramUsernameSchema.parse(post.ownerUsername),
-    metrics: metric
-      ? {
-          likesCount: likesHidden ? null : metric.likesCount,
-          likesHidden,
-          commentsCount: metric.commentsCount,
-          viewsCount: post.type === 'reel' ? publicViews(metric.viewsCount) : null,
-          collectedAt: metric.collectedAt.toISOString(),
-        }
-      : null,
+    metrics: metric ? serializeStoredPostMetric(metric, post.type) : null,
   };
 }
 export async function getStoredInstagramProfile(profileId: string, userId: string) {

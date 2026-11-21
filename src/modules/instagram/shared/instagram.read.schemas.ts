@@ -1,7 +1,8 @@
 import { z } from 'zod/v4';
 
+export const instagramInternalIdSchema = z.string().trim().min(1).max(200);
 export const instagramProfileIdParamsSchema = z.strictObject({
-  profileId: z.string().trim().min(1).max(200),
+  profileId: instagramInternalIdSchema,
 });
 const readDateSchema = z.union([z.iso.date(), z.iso.datetime({ offset: true })]);
 export const readRangeFields = {
@@ -39,3 +40,11 @@ export const readErrorSchema = z.object({
   error: z.object({ code: z.string(), message: z.string(), time: z.iso.datetime() }),
 });
 export const publicCountSchema = z.int().min(0).max(2147483647).nullable();
+
+export const publicPostMetricSchema = z.object({
+  likesCount: publicCountSchema,
+  likesHidden: z.boolean(),
+  commentsCount: publicCountSchema,
+  viewsCount: z.int().min(0).max(Number.MAX_SAFE_INTEGER).nullable(),
+  collectedAt: z.iso.datetime(),
+});
