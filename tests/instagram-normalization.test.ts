@@ -19,7 +19,7 @@ describe('Instagram normalization', () => {
         '___',
         '',
       ]),
-    ).toEqual(['rj2026', 'SãoPaulo', '東京', 'guaratiba']);
+    ).toEqual(['rj2026', 'sãopaulo', '東京', 'guaratiba']);
   });
   it.each([
     ['Image', 'photo'],

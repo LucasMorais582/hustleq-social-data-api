@@ -264,3 +264,39 @@ Decisões confirmadas: manter IDs internos string CUID, sem conversão de IDs
 existentes para UUID; seguir dois refreshes por conta no backend principal e
 um teto configurável de dez por usuário nesta API. O teto e o refresh ainda
 serão implementados na etapa própria; não há alteração de cota nesta entrega.
+
+## Adaptação MVP — normalização dos retornos
+
+A normalização de Profile/Post Scraper agora aceita likesCount=-1 e o converte
+em likesCount=null, likesHidden=true. Contagem ausente continua null, com
+likesHidden=false: ausência não comprova curtidas ocultas. O flag é salvo no
+snapshot, separado do conteúdo do post, sem alterar snapshots anteriores.
+
+Usernames de entrada/retorno são minúsculos, sem @. Hashtags ficam minúsculas,
+sem #, sem duplicatas após normalização e sem hashtags compostas só de números.
+Nome de perfil vazio vira null; bio preserva o texto recebido. A foto usa
+profilePicUrlHD e, se ausente, profilePicUrl. IDs externos continuam strings.
+
+Imagens usam a lista do provedor quando disponível; carrosséis podem recuperar
+as imagens de childPosts na ordem recebida. Uma capa sozinha não é apresentada
+como se fosse a lista completa do carrossel. Post de imagem única pode usar
+displayUrl como sua imagem. Se faltar url, um shortCode válido permite construir
+o permalink. Sem informação suficiente, o campo fica null/array vazio.
+
+Os tipos das rotas legadas continuam photo/carousel/reel. O mapper para os novos
+DTOs da MVP está preparado com IMAGE/CAROUSEL/REEL, sem mudar o enum do banco.
+productType=clips também identifica um Reel quando type não vem preenchido.
+
+**Mudança de dados:** novas coletas de Profile/Post Scraper não usam seus campos
+de views como métrica confiável. viewsCount (e playsCount no post/search legado)
+ficam null até o enriquecimento pelo Reel Scraper. O normalizador desse retorno
+já prioriza videoPlayCount, preservando zero, e usa videoViewCount como fallback.
+Sua execução/enriquecimento será ligada nos jobs; esta etapa não dispara outro
+Actor nem consome créditos adicionais. Snapshots antigos não são reescritos.
+
+As fixtures em tests/fixtures/instagram têm a origem registrada no próprio JSON:
+formatos dos exemplos fornecidos pelo usuário e amostra adaptada da documentação
+oficial do Reel Scraper (https://apify.com/apify/instagram-reel-scraper). Elas usam
+identificadores/textos/URLs substituídos e casos sintéticos de limite. Não são
+novas execuções reais. A validação de execução e enriquecimento com o Actor
+continua pendente na etapa dos jobs.

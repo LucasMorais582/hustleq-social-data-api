@@ -2,7 +2,7 @@ import { PersistenceError } from '../../../errors/persistence.error.js';
 import { savePostCollection } from './instagram.post.repository.js';
 import type { PostCollection } from './instagram.post.repository.js';
 import { ProviderError, providerFailure } from '../../../errors/provider.error.js';
-import { normalizeMediaType, normalizeHashtags } from '../shared/instagram.normalize.js';
+import { normalizeInstagramPost } from '../shared/instagram.post.normalize.js';
 import type { profileRequestWithResultLimits } from './instagram.post.schemas.js';
 import { fetchInstagramPost } from '../../../provider/apify/apify.provider.js';
 import {
@@ -29,6 +29,8 @@ export async function getInstagramPost(request: profileRequestWithResultLimits) 
       throw providerFailure(item.errorDescription ?? `Falha ao buscar publicação: ${item.error}`);
     }
 
+    const normalized = normalizeInstagramPost(item, 'post');
+
     // Sem identidade externa não inventa autor/ID para persistência; mantém a visualização.
     if (item.id && item.ownerId) {
       const persistable = instagramPersistablePostSchema.safeParse(item);
@@ -40,50 +42,51 @@ export async function getInstagramPost(request: profileRequestWithResultLimits) 
         );
       }
       const data = persistable.data;
-      const views = data.videoPlayCount ?? data.videoViewCount;
       collectedPosts.push({
         ownerInstagramId: data.ownerId,
         instagramPostId: data.id,
-        type: normalizeMediaType(data.type),
-        url: data.url ?? null,
-        caption: data.caption ?? null,
-        hashtags: normalizeHashtags(data.hashtags),
-        displayUrl: data.displayUrl ?? null,
-        images: data.images ?? [],
+        type: normalized.type,
+        url: normalized.url,
+        caption: normalized.caption,
+        hashtags: normalized.hashtags,
+        displayUrl: normalized.displayUrl,
+        images: normalized.images,
         timestamp: data.timestamp ? new Date(data.timestamp) : null,
-        ownerUsername: data.ownerUsername ?? null,
-        likesCount: data.likesCount ?? null,
+        ownerUsername: normalized.ownerUsername,
+        likesCount: normalized.likesCount,
+        likesHidden: normalized.likesHidden,
         commentsCount: data.commentsCount ?? null,
-        viewsCount: views === null || views === undefined ? null : BigInt(views),
+        viewsCount: null,
       });
     }
 
     const post = {
       id: item.id,
       shortCode: item.shortCode,
-      url: item.url,
+      url: normalized.url,
 
       author: {
         id: item.ownerId,
-        username: item.ownerUsername,
+        username: normalized.ownerUsername,
       },
 
-      type: normalizeMediaType(item.type),
+      type: normalized.type,
       productType: item.productType,
-      caption: item.caption,
-      publishedAt: item.timestamp,
+      caption: normalized.caption,
+      publishedAt: normalized.timestamp,
 
-      coverUrl: item.displayUrl,
-      images: item.images ?? [],
+      coverUrl: normalized.displayUrl,
+      images: normalized.images,
       videoUrl: item.videoUrl,
 
       metrics: {
-        likesCount: item.likesCount,
+        likesCount: normalized.likesCount,
+        likesHidden: normalized.likesHidden,
         commentsCount: item.commentsCount,
-        playsCount: item.videoPlayCount,
+        playsCount: normalized.viewsCount,
       },
 
-      hashtags: normalizeHashtags(item.hashtags),
+      hashtags: normalized.hashtags,
       mentions: item.mentions ?? [],
     };
 

@@ -55,12 +55,40 @@ describe('post/search persistence integration', () => {
       type: 'reel',
       likesCount: null,
       commentsCount: 2,
-      viewsCount: 3000000000n,
+      viewsCount: null,
       hashtags: ['rj2026'],
     });
     expect(input.posts[0].timestamp).toEqual(new Date('2026-11-19T10:00:00.000Z'));
     expect(input).not.toHaveProperty('profile');
   });
+  it('persists hidden likes as null and reports the flag without storing -1', async () => {
+    fetchInstagramPost.mockResolvedValue([{ ...post(), likesCount: -1 }]);
+    const response = await request();
+    expect(response.statusCode).toBe(200);
+    expect(response.json().response[0].metrics).toMatchObject({
+      likesCount: null,
+      likesHidden: true,
+      playsCount: null,
+    });
+    expect(savePostCollection.mock.calls[0]![0].posts[0]).toMatchObject({
+      likesCount: null,
+      likesHidden: true,
+    });
+  });
+
+  it('normalizes a username before sending it to the provider', async () => {
+    fetchInstagramPost.mockResolvedValue([]);
+    app = buildApp();
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/instagram/post/search',
+      headers: authHeaders(),
+      payload: { username: '  @EXAMPLE  ', resultLimits: 1 },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(fetchInstagramPost).toHaveBeenCalledWith('example', 1);
+  });
+
   it('still displays results when the repository skips all unregistered authors', async () => {
     fetchInstagramPost.mockResolvedValue([post()]);
     savePostCollection.mockResolvedValue(undefined);
@@ -85,17 +113,17 @@ describe('post/search persistence integration', () => {
     },
   );
   it('validates the entire collection before any writes', async () => {
-    fetchInstagramPost.mockResolvedValue([post(), { ...post(), id: 'bad', likesCount: -1 }]);
+    fetchInstagramPost.mockResolvedValue([post(), { ...post(), id: 'bad', likesCount: -2 }]);
     const response = await request();
     expect(response.statusCode).toBe(503);
     expect(response.json().error.code).toBe('PROVIDER_UNAVAILABLE');
     expect(savePostCollection).not.toHaveBeenCalled();
   });
-  it('preserves zero play counts instead of falling back to views', async () => {
+  it('does not trust play counts from Post Scraper, including zero', async () => {
     fetchInstagramPost.mockResolvedValue([{ ...post(), videoPlayCount: 0 }]);
     const response = await request();
     expect(response.statusCode).toBe(200);
-    expect(savePostCollection.mock.calls[0]![0].posts[0].viewsCount).toBe(0n);
+    expect(savePostCollection.mock.calls[0]![0].posts[0].viewsCount).toBeNull();
   });
   it('keeps an empty result without opening the repository', async () => {
     fetchInstagramPost.mockResolvedValue([]);

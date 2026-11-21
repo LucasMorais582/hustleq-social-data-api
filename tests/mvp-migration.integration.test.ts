@@ -86,7 +86,8 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')('MVP migration on Post
               images: [],
               timestamp,
               ownerUsername: 'legacy',
-              likesCount: 0,
+              likesCount: null,
+              likesHidden: true,
               commentsCount: 0,
               viewsCount: null,
             };
@@ -102,7 +103,7 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')('MVP migration on Post
               await tx.instagramPostMetricSnapshot.findFirstOrThrow({
                 where: { instagramPostId: saved.id },
               }),
-            ).toMatchObject({ source: 'initial', likesHidden: false, likesCount: 0 });
+            ).toMatchObject({ source: 'initial', likesHidden: true, likesCount: null });
 
             const tomorrow = new Date(timestamp.getTime() + 86400000);
             await saveProfileCollection(
@@ -122,7 +123,7 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')('MVP migration on Post
                   following: null,
                   postsCount: null,
                 },
-                posts: [{ ...post, likesCount: 5 }],
+                posts: [{ ...post, likesCount: 5, likesHidden: false }],
               },
               injected,
             );

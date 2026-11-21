@@ -10,7 +10,7 @@ describe('post persistence input', () => {
     { ownerId: null },
     { ownerId: ' ' },
     { ownerUsername: '' },
-    { likesCount: -1 },
+    { likesCount: -2 },
     { likesCount: 1.5 },
     { likesCount: 2147483648 },
     { commentsCount: -1 },

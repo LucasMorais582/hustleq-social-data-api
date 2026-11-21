@@ -1,3 +1,4 @@
+import { normalizeProfileName } from '../shared/instagram.normalize.js';
 import { lookupInstagramProfile } from '../profile/instagram.profile.service.js';
 import {
   createCompetitorConfirmation,
@@ -118,7 +119,7 @@ export async function previewInstagramCompetitor(
   const profile = {
     instagramId: item.id,
     username: item.username,
-    name: item.fullName ?? null,
+    name: normalizeProfileName(item.fullName),
     bio: item.biography ?? null,
     profilePhoto: item.profilePicUrlHD ?? item.profilePicUrl ?? null,
     url: item.url ?? null,

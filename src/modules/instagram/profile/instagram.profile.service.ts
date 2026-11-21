@@ -1,8 +1,8 @@
 import { PersistenceError } from '../../../errors/persistence.error.js';
 import { saveProfileCollection } from './instagram.profile.repository.js';
-import { normalizeHashtags } from '../shared/instagram.normalize.js';
+import { normalizeProfileName } from '../shared/instagram.normalize.js';
+import { normalizeInstagramPost } from '../shared/instagram.post.normalize.js';
 import { ProviderError, providerFailure } from '../../../errors/provider.error.js';
-import { normalizeMediaType } from '../shared/instagram.normalize.js';
 import { z } from 'zod/v4';
 import { ProfileLookupError } from './instagram.profile.errors.js';
 import { fetchInstagramProfile } from '../../../provider/apify/apify.provider.js';
@@ -71,62 +71,66 @@ export async function getInstagramProfile(
   const profile = {
     id: item.id,
     username: item.username,
-    name: item.fullName,
+    name: normalizeProfileName(item.fullName),
     biography: item.biography,
     followersCount: item.followersCount,
     followingCount: item.followsCount,
     totalPosts: item.postsCount,
-    profilePicUrlHD: item.profilePicUrlHD,
+    profilePicUrlHD: item.profilePicUrlHD ?? item.profilePicUrl ?? null,
   };
 
-  const posts = item.latestPosts.map((post) => ({
-    id: post.id,
+  const normalized = item.latestPosts.map((raw) => ({
+    raw,
+    post: normalizeInstagramPost(raw, 'profile'),
+  }));
+  const posts = normalized.map(({ raw, post }) => ({
+    id: raw.id,
     profileId: item.id,
-    ownerId: post.ownerId,
-    type: normalizeMediaType(post.type),
+    ownerId: raw.ownerId,
+    type: post.type,
     caption: post.caption,
     url: post.url,
     displayUrl: post.displayUrl,
+    images: post.images,
     likesCount: post.likesCount,
+    likesHidden: post.likesHidden,
     commentsCount: post.commentsCount,
     publishedAt: post.timestamp,
   }));
 
-  // Mantém o contrato HTTP existente; a persistência usa os dados completos validados.
   const collectedAt = new Date();
-  const ownedPosts = item.latestPosts.filter((post) => post.ownerId === item.id);
   const collection = {
     collectedAt,
     profile: {
       instagramId: item.id,
       username: item.username,
-      name: item.fullName ?? null,
+      name: normalizeProfileName(item.fullName),
       url: item.url ?? null,
       bio: item.biography ?? null,
-      profilePhoto: item.profilePicUrlHD ?? null,
+      profilePhoto: item.profilePicUrlHD ?? item.profilePicUrl ?? null,
       category: item.businessCategoryName ?? null,
       isVerified: item.verified ?? null,
       followers: item.followersCount ?? null,
       following: item.followsCount ?? null,
       postsCount: item.postsCount ?? null,
     },
-    posts: ownedPosts.map((post) => {
-      const views = post.videoPlayCount ?? post.videoViewCount;
-      return {
-        instagramPostId: post.id,
-        type: normalizeMediaType(post.type),
-        url: post.url ?? null,
-        caption: post.caption ?? null,
-        hashtags: normalizeHashtags(post.hashtags),
-        displayUrl: post.displayUrl ?? null,
-        images: post.images ?? [],
+    posts: normalized
+      .filter(({ raw }) => raw.ownerId === item.id)
+      .map(({ raw, post }) => ({
+        instagramPostId: raw.id,
+        type: post.type,
+        url: post.url,
+        caption: post.caption,
+        hashtags: post.hashtags,
+        displayUrl: post.displayUrl,
+        images: post.images,
         timestamp: post.timestamp ? new Date(post.timestamp) : null,
         ownerUsername: post.ownerUsername ?? item.username,
-        likesCount: post.likesCount ?? null,
-        commentsCount: post.commentsCount ?? null,
-        viewsCount: views === null || views === undefined ? null : BigInt(views),
-      };
-    }),
+        likesCount: post.likesCount,
+        likesHidden: post.likesHidden,
+        commentsCount: post.commentsCount,
+        viewsCount: null,
+      })),
   };
   try {
     await saveProfileCollection(

@@ -31,6 +31,7 @@ export interface ProfileCollection {
     timestamp: Date | null;
     ownerUsername: string | null;
     likesCount: number | null;
+    likesHidden: boolean;
     commentsCount: number | null;
     viewsCount: bigint | null;
   }[];
@@ -74,7 +75,7 @@ export async function saveProfileCollection(
           }
 
           for (const post of collection.posts) {
-            const { likesCount, commentsCount, viewsCount, ...content } = post;
+            const { likesCount, likesHidden, commentsCount, viewsCount, ...content } = post;
             const existing = await tx.instagramPost.findUnique({
               where: { instagramPostId: post.instagramPostId },
             });
@@ -97,6 +98,7 @@ export async function saveProfileCollection(
                   instagramPostId: savedPost.id,
                   source: collection.refreshMetricsSince ? 'daily' : 'initial',
                   likesCount,
+                  likesHidden,
                   commentsCount,
                   viewsCount,
                   collectedAt: collection.collectedAt,
@@ -125,6 +127,7 @@ export async function saveProfileCollection(
                   instagramPostId: post.id,
                   source: 'daily',
                   likesCount: metrics.likesCount,
+                  likesHidden: metrics.likesHidden,
                   commentsCount: metrics.commentsCount,
                   viewsCount: metrics.viewsCount,
                   collectedAt: collection.collectedAt,

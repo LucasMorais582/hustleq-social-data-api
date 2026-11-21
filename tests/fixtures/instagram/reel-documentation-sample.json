@@ -1,0 +1,22 @@
+{
+  "_fixture": {
+    "origin": "Adaptado do exemplo público oficial de saída do Reel Scraper, consultado em 20/11/2026. IDs, username, texto e URLs substituídos. Contagens de curtidas ocultas/play/view mantêm o caso do exemplo. Não é uma nova execução real.",
+    "url": "https://apify.com/apify/instagram-reel-scraper#output",
+    "liveRun": false
+  },
+  "id": "90071992547409938888",
+  "ownerId": "90071992547409931234",
+  "ownerUsername": "Example_Profile",
+  "shortCode": "Fixture_Reel",
+  "type": "Video",
+  "productType": "clips",
+  "caption": "Fixture de Reel",
+  "timestamp": "2026-04-09T19:23:29.000Z",
+  "displayUrl": "https://example.com/reel-cover.jpg",
+  "likesCount": -1,
+  "commentsCount": null,
+  "videoPlayCount": 809683,
+  "videoViewCount": 45600,
+  "images": [],
+  "childPosts": []
+}

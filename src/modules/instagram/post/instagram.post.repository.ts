@@ -30,7 +30,14 @@ export async function savePostCollection(
           for (const post of [...collection.posts].sort((a, b) =>
             a.instagramPostId.localeCompare(b.instagramPostId),
           )) {
-            const { ownerInstagramId, likesCount, commentsCount, viewsCount, ...content } = post;
+            const {
+              ownerInstagramId,
+              likesCount,
+              likesHidden,
+              commentsCount,
+              viewsCount,
+              ...content
+            } = post;
             const instagramProfileId = profileIds.get(ownerInstagramId);
             if (!instagramProfileId) continue;
             const seenOwner = seenPosts.get(post.instagramPostId);
@@ -56,6 +63,7 @@ export async function savePostCollection(
                   instagramPostId: saved.id,
                   source: 'initial',
                   likesCount,
+                  likesHidden,
                   commentsCount,
                   viewsCount,
                   collectedAt: collection.collectedAt,

@@ -1,0 +1,23 @@
+{
+  "_fixture": {
+    "origin": "Formato baseado nos Sidecar/childPosts do JSON real fornecido pelo usuário. Identificadores, conteúdo e URLs substituídos; campos ausentes simulam variações de retorno.",
+    "liveRun": false
+  },
+  "id": "90071992547409939999",
+  "ownerId": "90071992547409931234",
+  "ownerUsername": "Example_Profile",
+  "shortCode": "Fixture_AbC123",
+  "type": "Sidecar",
+  "caption": "70 Adams St #4 #SãoPaulo #RJ",
+  "hashtags": ["4", "SãoPaulo", "sãopaulo", "#RJ", "RJ"],
+  "timestamp": "2026-11-17T12:00:00.000Z",
+  "displayUrl": "https://example.com/cover.jpg",
+  "images": [],
+  "childPosts": [
+    { "type": "Image", "displayUrl": "https://example.com/first.jpg" },
+    { "type": "Image", "displayUrl": "https://example.com/second.jpg" }
+  ],
+  "likesCount": 0,
+  "commentsCount": null,
+  "videoPlayCount": 123
+}

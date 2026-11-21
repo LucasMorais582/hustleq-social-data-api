@@ -1,0 +1,30 @@
+{
+  "_fixture": {
+    "origin": "Formato baseado no JSON real de Profile Scraper fornecido pelo usuário nesta conversa. Identificadores, texto, métricas e URLs foram substituídos para teste.",
+    "liveRun": false
+  },
+  "id": "90071992547409931234",
+  "username": "@Example_Profile",
+  "fullName": "  ",
+  "biography": "Bio preservada\nCom duas linhas",
+  "profilePicUrlHD": null,
+  "profilePicUrl": "https://example.com/profile.jpg",
+  "followersCount": 425,
+  "followsCount": 899,
+  "postsCount": 15,
+  "latestPosts": [
+    {
+      "id": "90071992547409935678",
+      "ownerId": "90071992547409931234",
+      "ownerUsername": "Example_Profile",
+      "type": "Image",
+      "caption": "Fixture de teste #RJ #4",
+      "hashtags": ["RJ", "rj", "4"],
+      "timestamp": "2026-11-17T12:00:00.000Z",
+      "displayUrl": "https://example.com/photo.jpg",
+      "images": [],
+      "likesCount": 41,
+      "commentsCount": 4
+    }
+  ]
+}

@@ -87,13 +87,43 @@ describe('profile/search persistence integration', () => {
       type: 'reel',
       hashtags: ['rj2026'],
       likesCount: null,
-      viewsCount: 3000000000n,
+      viewsCount: null,
       ownerUsername: 'example',
     });
     expect(response.json().response.profile.id).toBe('external-profile');
     expect(response.json().response.posts).toHaveLength(2);
     expect(response.json().response.posts[0].likesCount).toBe(null);
   });
+  it('normalizes hidden likes and profile identity with the photo fallback', async () => {
+    const value = profile();
+    fetchInstagramProfile.mockResolvedValue({
+      ...value,
+      username: '@EXAMPLE',
+      fullName: ' ',
+      profilePicUrl: 'https://example.com/fallback.jpg',
+      latestPosts: [{ ...value.latestPosts[0], likesCount: -1 }],
+    });
+    const response = await request();
+    expect(response.statusCode).toBe(200);
+    expect(response.json().response.profile).toMatchObject({
+      username: 'example',
+      name: null,
+      profilePicUrlHD: 'https://example.com/fallback.jpg',
+    });
+    expect(response.json().response.posts[0]).toMatchObject({
+      likesCount: null,
+      likesHidden: true,
+    });
+    expect(saveProfileCollection.mock.calls[0]![0]).toMatchObject({
+      profile: {
+        profilePhoto: 'https://example.com/fallback.jpg',
+        name: null,
+        username: 'example',
+      },
+      posts: [expect.objectContaining({ likesCount: null, likesHidden: true, viewsCount: null })],
+    });
+  });
+
   it('does not return success if the transaction fails and hides DB internals', async () => {
     fetchInstagramProfile.mockResolvedValue(profile());
     saveProfileCollection.mockRejectedValue(new Error('secret database internals'));

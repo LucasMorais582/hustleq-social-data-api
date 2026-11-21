@@ -1,7 +1,11 @@
 import { ProviderError } from '../../../errors/provider.error.js';
 
-export function normalizeMediaType(type: string | null | undefined): 'photo' | 'carousel' | 'reel' {
-  switch (type?.toLowerCase()) {
+export function normalizeMediaType(
+  type: string | null | undefined,
+  productType?: string | null,
+): 'photo' | 'carousel' | 'reel' {
+  if (productType?.trim().toLowerCase() === 'clips') return 'reel';
+  switch (type?.trim().toLowerCase()) {
     case 'image':
     case 'photo':
       return 'photo';
@@ -24,8 +28,16 @@ export function normalizeHashtags(hashtags: string[] | null | undefined) {
   return [
     ...new Set(
       (hashtags ?? [])
-        .map((tag) => tag.trim().replace(/^#+/, ''))
+        .map((tag) => tag.trim().replace(/^#+/, '').trim().toLowerCase())
         .filter((tag) => /\p{L}/u.test(tag)),
     ),
   ];
+}
+
+export function toMvpMediaType(type: 'photo' | 'carousel' | 'reel') {
+  return ({ photo: 'IMAGE', carousel: 'CAROUSEL', reel: 'REEL' } as const)[type];
+}
+
+export function normalizeProfileName(value: string | null | undefined) {
+  return value?.trim() ? value : null;
 }

@@ -1,14 +1,11 @@
 import { z } from 'zod/v4';
+import { instagramUsernameSchema } from '../shared/instagram.provider.schemas.js';
 
 const id = z.string().trim().min(1).max(200);
 export const competitorParamsSchema = z.strictObject({ instagramProfileId: id });
 export const competitorRelationParamsSchema = competitorParamsSchema.extend({ relationId: id });
 export const competitorSearchSchema = z.strictObject({
-  username: z
-    .string()
-    .trim()
-    .transform((value) => value.replace(/^@/, ''))
-    .pipe(z.string().regex(/^[a-zA-Z0-9._]{1,30}$/)),
+  username: instagramUsernameSchema,
 });
 export const competitorConfirmationSchema = z.strictObject({
   confirmed: z.literal(true),

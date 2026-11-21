@@ -315,3 +315,39 @@ diferença entre banco e schema versionado. Verificação final: dois perfis,
 14 posts, 14 snapshots de métricas (todos com source null), DiscoverCache e
 ProviderRun vazios. Nenhuma coleta Apify foi executada. O teste opt-in fica
 ignorado por padrão no npm test para não acessar o banco automaticamente.
+
+## Etapa posterior C — normalização e fixtures
+
+Implementado:
+
+- Schema de retorno compartilhado entre perfil/post e normalizador independente
+  da origem profile/post/reel. IDs string; contagens validadas, incluindo -1
+  somente para curtidas ocultas. Inteiros imprecisos e frações são rejeitados.
+- likesCount=-1 vira null + likesHidden=true; ausência não implica curtida oculta.
+  Repositories gravam likesHidden no snapshot, sem espalhá-lo no conteúdo do post.
+- Usernames minúsculos sem @, hashtags minúsculas/deduplicadas com Unicode e
+  descarte de hashtags sem letras. Nome vazio null e foto HD com fallback.
+- Imagens de carrossel preservam ordem; fallback por childPosts quando a lista
+  principal está vazia. Capa sem detalhes não finge representar todo o carrossel.
+  URL pode ser construída com shortCode válido; campos desconhecidos ficam null.
+- Tipos internos e legados continuam photo/carousel/reel. Mapper dos novos DTOs
+  preparado para IMAGE/CAROUSEL/REEL. productType clips identifica Reel.
+- Views de novas coletas de Profile/Post Scraper ficam null. Somente o retorno
+  explicitamente identificado como Reel Scraper é normalizado como fonte de views,
+  priorizando videoPlayCount e preservando zero. Não há Actor extra ligado às
+  rotas legadas; o enriquecimento ainda depende dos jobs.
+- Fixtures sanitizadas/adaptadas dos exemplos fornecidos pelo usuário e do exemplo
+  público oficial do Reel Scraper, com origem explícita em cada JSON. São amostras
+  de contrato, não comprovação de execução real nem fixtures de uma nova coleta.
+
+Nenhuma migration, quota, cron ou novo endpoint nesta etapa. Sem Actors pagos,
+sem deploy e sem alteração dos dados históricos do schema public. A integração
+com Reel Scraper, travas/custos e execução durável continuam pendentes.
+
+Validação concluída: 301 testes locais passaram, e o teste PostgreSQL opt-in
+passou separadamente com rollback confirmado do schema de teste. Typecheck, lint,
+format:check e build passaram. O teste real gravou um snapshot com curtidas ocultas
+e depois outro com curtidas públicas, preservando o histórico e source do legado.
+A execução paralela de ferramentas apresentou timeouts em testes de rota; a suíte
+passou isoladamente, sem aumentar timeouts nem modificar a configuração de testes.
+Não usar duração de testes mockados como evidência de SLA do Apify.
