@@ -7,7 +7,7 @@ import { ApiError } from '../errors/api.error.js';
 export async function assertProfileReadAccess(
   profileId: string,
   userId: string,
-  client: PrismaClient = getPrismaClient(),
+  client: Pick<PrismaClient, 'instagramProfile'> = getPrismaClient(),
 ): Promise<'OWNER' | 'COMPETITOR'> {
   const profile = await client.instagramProfile.findUnique({
     where: { id: profileId },
@@ -29,7 +29,7 @@ export async function assertProfileReadAccess(
 export async function assertPostReadAccess(
   postId: string,
   userId: string,
-  client: PrismaClient = getPrismaClient(),
+  client: Pick<PrismaClient, 'instagramProfile' | 'instagramPost'> = getPrismaClient(),
 ) {
   const post = await client.instagramPost.findUnique({
     where: { id: postId },
