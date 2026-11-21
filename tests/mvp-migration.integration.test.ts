@@ -1,4 +1,8 @@
 import {
+  assignInstagramProfileOwner,
+  clearInstagramProfileReservation,
+} from '../src/modules/instagram/profile/instagram.profile.internal.service.js';
+import {
   readStoredInstagramProfile,
   readStoredInstagramPosts,
   readStoredInstagramProfileSnapshots,
@@ -174,8 +178,41 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')('MVP migration on Post
             // Leituras da MVP: dados salvos, autorização por dono/relação e filtros reais.
             await tx.instagramProfile.update({
               where: { id: 'legacy-profile' },
-              data: { ownerUserId: 'owner-user' },
+              data: { reservedForInviteId: 'test-invite', reservedUntil: tomorrow },
             });
+            expect(
+              await assignInstagramProfileOwner('legacy-profile', 'owner-user', injected),
+            ).toEqual({ profileId: 'legacy-profile', ownerUserId: 'owner-user' });
+            expect(
+              await tx.instagramProfile.findUniqueOrThrow({ where: { id: 'legacy-profile' } }),
+            ).toMatchObject({
+              ownerUserId: 'owner-user',
+              reservedForInviteId: null,
+              reservedUntil: null,
+            });
+            expect(
+              await assignInstagramProfileOwner('legacy-profile', 'owner-user', injected),
+            ).toMatchObject({ ownerUserId: 'owner-user' });
+            await expect(
+              assignInstagramProfileOwner('legacy-profile', 'another-owner', injected),
+            ).rejects.toMatchObject({ statusCode: 409, code: 'PROFILE_ALREADY_OWNED' });
+            await tx.instagramProfile.update({
+              where: { id: 'legacy-profile' },
+              data: { reservedForInviteId: 'test-invite-2', reservedUntil: tomorrow },
+            });
+            await clearInstagramProfileReservation('legacy-profile', injected);
+            await clearInstagramProfileReservation('legacy-profile', injected);
+            expect(
+              await tx.instagramProfile.findUniqueOrThrow({ where: { id: 'legacy-profile' } }),
+            ).toMatchObject({
+              ownerUserId: 'owner-user',
+              reservedForInviteId: null,
+              reservedUntil: null,
+            });
+            expect(
+              await tx.instagramPost.count({ where: { instagramProfileId: 'legacy-profile' } }),
+            ).toBe(2);
+            expect(await tx.instagramPostMetricSnapshot.count()).toBe(3);
             const profileRead = await readStoredInstagramProfile(
               'legacy-profile',
               'owner-user',
@@ -247,17 +284,21 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')('MVP migration on Post
             ).rejects.toMatchObject({ code: 'PROFILE_NOT_FOUND' });
             throw rollback;
           },
-          { timeout: 45000, maxWait: 10000 },
+          { timeout: 75000, maxWait: 10000 },
         );
       } catch (error) {
         if (error !== rollback) throw error;
       }
-      const [state] = await client.$queryRaw<
-        { present: boolean }[]
-      >`SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = ${namespace}) AS present`;
-      expect(state?.present).toBe(false);
     } finally {
-      await client.$disconnect();
+      try {
+        // Verifica o rollback tambem quando uma assercao ou a transacao falha.
+        const [state] = await client.$queryRaw<
+          { present: boolean }[]
+        >`SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = ${namespace}) AS present`;
+        expect(state?.present).toBe(false);
+      } finally {
+        await client.$disconnect();
+      }
     }
-  }, 60000);
+  }, 90000);
 });

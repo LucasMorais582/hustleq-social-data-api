@@ -32,26 +32,26 @@ Situacao atualizada em 21/11/2026: as sete tabelas estao modeladas e suas
 migrations foram aplicadas ao Supabase de desenvolvimento. Ha persistencia,
 normalizacao e guards JWT de usuario/servico. Os endpoints 5, 6 e 7 usam
 OWNER/COMPETITOR nas leituras do banco. Os demais endpoints continuam pendentes
-ou parciais; reservas, atribuicao de dono, cache em uso, custos e jobs duraveis
-ainda faltam. As secoes posteriores registram as etapas ja concluidas.
+ou parciais; a criacao de reservas, cache em uso, custos e jobs duraveis
+ainda faltam. Atribuicao de dono e liberacao de reserva estao nos endpoints 3/4. As secoes posteriores registram as etapas ja concluidas.
 
 ## Funcionalidades - acompanhamento atual
 
-| Funcionalidade                     | Situacao                   | O que falta                                            |
-| ---------------------------------- | -------------------------- | ------------------------------------------------------ |
-| Sete tabelas e migrations          | Prontas                    | Evolucoes quando necessarias nas proximas etapas       |
-| IDs string e legado                | Prontos                    | Alinhamento externo sobre CUID, que nao e UUID         |
-| JWT de usuario/servico             | Base pronta                | Ligar os guards as demais rotas MVP                    |
-| Normalizacao e fixtures            | Base pronta                | Enriquecimento real pelo Reel Scraper nos jobs         |
-| Persistencia                       | Base pronta                | Integrar os novos fluxos/jobs                          |
-| Leituras de perfil/posts/historico | Endpoints 5-7 prontos      | Validar com o adaptador do backend principal           |
-| Convites, reserva e dono           | Pendentes                  | Endpoints 2-4 e Initial Sync                           |
-| Concorrentes/Watched               | Parcial                    | Contrato MVP, autorizacao e Initial/Watched Sync       |
-| Coleta diaria                      | Parcial                    | Hoje 10 posts/6h; guia pede 12/4h e jobs duraveis      |
-| Post Refresh e teto de seguranca   | Pendentes                  | Endpoints 8-10, deduplicacao, fuso e quota             |
-| Custos Apify                       | Estrutura pronta           | Preencher ProviderRun e endpoint 12                    |
-| Discover/cache                     | Estrutura/provider prontos | Endpoint 16, cache compartilhado e aquecimento         |
-| Deploy e integracao com backend    | Pendentes                  | Definir hospedagem/jobs e validar no ambiente acordado |
+| Funcionalidade                     | Situacao                         | O que falta                                            |
+| ---------------------------------- | -------------------------------- | ------------------------------------------------------ |
+| Sete tabelas e migrations          | Prontas                          | Evolucoes quando necessarias nas proximas etapas       |
+| IDs string e legado                | Prontos                          | Alinhamento externo sobre CUID, que nao e UUID         |
+| JWT de usuario/servico             | Base pronta                      | Ligar os guards as demais rotas MVP                    |
+| Normalizacao e fixtures            | Base pronta                      | Enriquecimento real pelo Reel Scraper nos jobs         |
+| Persistencia                       | Base pronta                      | Integrar os novos fluxos/jobs                          |
+| Leituras de perfil/posts/historico | Endpoints 5-7 prontos            | Validar com o adaptador do backend principal           |
+| Convites, reserva e dono           | Parcial: endpoints 3 e 4 prontos | Endpoint 2 e Initial Sync                              |
+| Concorrentes/Watched               | Parcial                          | Contrato MVP, autorizacao e Initial/Watched Sync       |
+| Coleta diaria                      | Parcial                          | Hoje 10 posts/6h; guia pede 12/4h e jobs duraveis      |
+| Post Refresh e teto de seguranca   | Pendentes                        | Endpoints 8-10, deduplicacao, fuso e quota             |
+| Custos Apify                       | Estrutura pronta                 | Preencher ProviderRun e endpoint 12                    |
+| Discover/cache                     | Estrutura/provider prontos       | Endpoint 16, cache compartilhado e aquecimento         |
+| Deploy e integracao com backend    | Pendentes                        | Definir hospedagem/jobs e validar no ambiente acordado |
 
 ## Inventário dos 16 endpoints
 
@@ -63,8 +63,8 @@ usam `{ response: ... }`; as novas leituras 5-7 retornam objetos diretos como no
 | --- | --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | 1   | GET /instagram/profiles/search                                  | Parcial: POST /instagram/profile/search consulta **e persiste**; há lookup sem persistência usado na prévia de concorrentes | GET com query, normalização, ownershipStatus, ausência como 200/not_found, ProviderRun search e prazo de resposta <30s |
 | 2   | POST /internal/instagram/profiles                               | Ausente                                                                                                                     | Reserva por convite, conflitos de dono/reserva, disparo Initial Sync sem aguardar                                      |
-| 3   | POST /internal/instagram/profiles/:profileId/owner              | Ausente                                                                                                                     | Atribuição de dono por token de serviço, limpeza da reserva e conflitos                                                |
-| 4   | DELETE /internal/instagram/profiles/:profileId/reservation      | Ausente                                                                                                                     | Liberar reserva, preservar dados, 204                                                                                  |
+| 3   | POST /internal/instagram/profiles/:profileId/owner              | Pronto nesta etapa                                                                                                          | Validacao externa com o backend principal                                                                              |
+| 4   | DELETE /internal/instagram/profiles/:profileId/reservation      | Pronto nesta etapa                                                                                                          | Validacao externa com o backend principal                                                                              |
 | 5   | GET /instagram/profiles/:profileId                              | Pronto nesta etapa                                                                                                          | Validacao externa; isVerified pode ser null por decisao do usuario                                                     |
 | 6   | GET /instagram/profiles/:profileId/posts                        | Pronto nesta etapa                                                                                                          | Validacao externa com o adaptador                                                                                      |
 | 7   | GET /instagram/profiles/:profileId/snapshots                    | Pronto nesta etapa                                                                                                          | Validacao externa com o adaptador                                                                                      |
@@ -88,7 +88,7 @@ JWT HS256 com iss/aud configuraveis e sub/iat/exp obrigatorios, duracao maxima
 de cinco minutos e guards separados de usuario/servico estao implementados.
 OWNER/COMPETITOR ja e calculado pelo banco nos endpoints 5-7. O guard de servico
 exige sub=hustleq-main e scope=service; as rotas internas ainda serao criadas.
-ownerUserId continua sem atribuicao automatica porque o fluxo interno esta pendente.
+ownerUserId e atribuido explicitamente pelo endpoint interno 3, nunca por efeito de um GET.
 
 - O backend principal e o unico cliente. Nao criar login publico nem tabela User.
 - Leituras 5-7 usam o sub do JWT, sem confiar em claims OWNER/COMPETITOR, body ou
@@ -399,3 +399,42 @@ encerramento, filtros, paginacao e preservacao do historico. O schema isolado fo
 revertido e sua ausencia foi confirmada. Typecheck, lint, format:check e build
 passaram. Nenhuma execucao Apify foi iniciada, nem dados do schema public foram
 alterados. Pausar para o commit do usuario antes da proxima etapa.
+
+## Etapa posterior E — atribuir dono e liberar reserva (3–4)
+
+Implementado com routes, schemas, service e repository:
+
+- POST /api/v1/internal/instagram/profiles/:profileId/owner recebe userId String,
+  atribui ownerUserId e limpa reservedForInviteId/reservedUntil. Retorna 200 com
+  profileId/ownerUserId. Mesmo dono é idempotente; dono diferente gera 409
+  PROFILE_ALREADY_OWNED sem alterar a reserva ou transferir o perfil.
+- DELETE /api/v1/internal/instagram/profiles/:profileId/reservation limpa somente
+  os campos da reserva e retorna 204 sem corpo. Preserva dono, dados e histórico.
+  Repetição sem reserva é permitida. Perfil inexistente retorna 404 nas duas rotas.
+- Guard real de serviço, com sub=hustleq-main e scope=service. Usuários comuns
+  recebem 403; autenticação ausente/inválida recebe 401 antes de acessar o banco.
+- Transação serializável com até três tentativas para P2034, revalidando o dono.
+  Testes simulam conflitos e falhas sem expor SQL/credenciais no corpo do erro.
+- O serviço principal é responsável por validar convite/aceite e o destinatário.
+  userId no body interno é o usuário que receberá o perfil, não a identidade do
+  chamador. Não aplicar essa exceção às rotas de usuário: nelas a identidade
+  continua vindo do sub do JWT. Não há tabela User nesta API.
+
+Não altera perfil/Instagram ID, contagens, posts ou snapshots; não faz coleta,
+sync, migration, cron ou deploy. O endpoint 2 e Initial Sync continuam pendentes.
+Este avanço permite usar as leituras 5–7 após a atribuição pelo backend, sem
+editar ownerUserId manualmente. Não atribuir dono como efeito colateral de GETs.
+
+Validacao concluida: 388 testes locais passaram. O teste PostgreSQL opt-in
+passou separadamente, verificando atribuicao idempotente, conflito de outro dono,
+limpeza de reserva e preservacao de posts/metricas, com rollback e ausencia do
+schema temporario confirmados. Conflitos concorrentes foram simulados nos testes
+de retry; nao se afirma teste de carga ou concorrencia real entre conexoes.
+Typecheck, lint, format:check e build passaram.
+
+O cenario opt-in chegou ao limite anterior de 45s durante as varias operacoes e
+DDL de preparacao. Seu limite foi ampliado para 75s (90s no teste completo), com
+verificacao de limpeza em finally tambem em falhas. O tempo das transacoes da
+API permanece 15s; nenhuma configuracao de producao foi ampliada. A repeticao
+real passou em aproximadamente 26s. Nao houve alteracao dos dados do schema
+public, chamada Apify, migration ou deploy. Pausar para o commit do usuario.

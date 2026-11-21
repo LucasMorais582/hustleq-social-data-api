@@ -1,3 +1,4 @@
+import { instagramProfileInternalRoutes } from './modules/instagram/profile/instagram.profile.internal.routes.js';
 import { instagramProfileReadRoutes } from './modules/instagram/profile/instagram.profile.read.routes.js';
 import { ApiError, sendApiError } from './errors/api.error.js';
 import { instagramCompetitorRoutes } from './modules/instagram/competitors/instagram.competitors.routes.js';
@@ -103,6 +104,7 @@ export function buildApp() {
     transformSpecification: (swaggerObject) => swaggerObject,
   });
 
+  app.register(instagramProfileInternalRoutes, { prefix: '/api/v1' });
   app.register(instagramProfileReadRoutes, { prefix: '/api/v1' });
   app.register(instagramCompetitorRoutes, { prefix: '/api/v1' });
   app.register(instagramRefreshRoutes, { prefix: '/api' });

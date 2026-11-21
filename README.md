@@ -230,7 +230,7 @@ O guard `authenticateService` está preparado para as próximas rotas `/internal
 exige `sub: "hustleq-main"` e `scope: "service"`, além das mesmas verificações de
 assinatura, emissor, audiência e validade máxima de cinco minutos. Token válido
 com papel inadequado retorna 403 FORBIDDEN; ausente ou inválido retorna 401
-UNAUTHENTICATED. As rotas de convites/internal ainda não foram criadas nesta etapa.
+UNAUTHENTICATED. As rotas internas 3 e 4 ja usam esse guard; a criacao de reserva/convite (2) continua pendente.
 
 O formato dos erros das rotas de negócio passou a ser:
 
@@ -341,9 +341,69 @@ GET /api/v1/instagram/profiles/ID_INTERNO/posts?type=REEL&page=1&limit=30&from=2
 Um perfil inexistente retorna 404 PROFILE_NOT_FOUND; perfil existente sem escopo
 retorna 403 FORBIDDEN. Histórico vazio retorna 200 e lista vazia. Falha no banco
 retorna erro, sem fingir ausência de dados ou tentar consultar a Apify.
-Perfis legados com ownerUserId nulo precisam da atribuição de dono pelo fluxo
-interno que ainda será implementado; estes GETs não fazem essa atribuição.
+Perfis legados com ownerUserId nulo precisam da atribuicao de dono pelo endpoint
+interno 3; estes GETs nao fazem essa atribuicao.
 
 A tabela completa de funcionalidades e dos 16 endpoints fica na
 [memória de implementação](docs/mvp-implementation-audit.md) e será atualizada
 a cada etapa concluída.
+
+## Perfis internos — atribuição de dono e liberação de reserva
+
+Os endpoints 3 e 4 exigem um **token de serviço**, com sub=hustleq-main,
+scope=service, HS256, iss/aud configurados e validade máxima de cinco minutos.
+Um JWT normal de usuário é recusado com 403 FORBIDDEN. O backend principal
+valida o convite e o usuário destinatário antes de chamar estas operações.
+
+### Atribuir o dono — endpoint 3
+
+```text
+POST /api/v1/internal/instagram/profiles/ID_INTERNO/owner
+```
+
+```json
+{ "userId": "ID_DO_USUARIO_HUSTLEQ" }
+```
+
+Retorna 200 com um objeto direto:
+
+```json
+{ "profileId": "ID_INTERNO", "ownerUserId": "ID_DO_USUARIO_HUSTLEQ" }
+```
+
+A operação grava ownerUserId e coloca reservedForInviteId/reservedUntil em null
+na mesma transação. A reserva é temporária: ela indica qual convite reservou
+o perfil e até quando; depois do aceite, o vínculo permanente é ownerUserId.
+Repetir para o mesmo usuário é permitido. Um dono diferente gera 409
+PROFILE_ALREADY_OWNED, sem transferir o perfil ou limpar a reserva.
+
+userId é o destinatário da atribuição enviado pelo serviço autenticado, não
+a identidade do chamador (que é hustleq-main). Não cria tabela ou conta User,
+não consulta a Apify e não inicia sync. O backend principal continua responsável
+por validar aceite, convite e existência do usuário na HustleQ.
+
+### Liberar a reserva — endpoint 4
+
+```text
+DELETE /api/v1/internal/instagram/profiles/ID_INTERNO/reservation
+```
+
+Sem body; retorna 204 com corpo vazio. Limpa somente reservedForInviteId e
+reservedUntil. Não remove ownerUserId, perfil, posts, snapshots ou relações.
+Repetir quando já está sem reserva também retorna 204. Perfil inexistente
+retorna 404 PROFILE_NOT_FOUND em ambas as rotas. Falha no banco é erro, não sucesso.
+
+As duas operações usam transações serializáveis, com até três tentativas para
+conflitos de serialização. A verificação de dono é repetida antes de gravar.
+Não há mecanismo de transferência de dono nesta entrega.
+
+Para teste local, gere um JWT de serviço somente em terminal confiável:
+
+```bash
+node --import tsx --input-type=module -e 'import { buildApp } from "./src/app.ts"; const app = buildApp(); await app.ready(); console.log(app.jwt.sign({ sub: "hustleq-main", scope: "service" })); await app.close();'
+```
+
+Use esse token no POST/DELETE internos. Para ler o perfil pelos endpoints 5–7,
+use outro JWT, de usuário, com sub igual ao userId atribuído. Esses tokens não
+devem ser enviados ao navegador. O endpoint 2, que cria a reserva e inicia o
+Initial Sync, continua pendente da implementação dos jobs.
