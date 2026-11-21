@@ -31,7 +31,7 @@ apenas por ter uma rota parecida: faltam contratos, autorização ou jobs.
 Situacao atualizada em 21/11/2026: as sete tabelas estao modeladas e suas
 migrations foram aplicadas ao Supabase de desenvolvimento. Ha persistencia,
 normalizacao e guards JWT de usuario/servico. Os endpoints 5, 6 e 7 usam
-OWNER/COMPETITOR nas leituras do banco. Os demais endpoints continuam pendentes
+OWNER/COMPETITOR nas leituras do banco; o endpoint 9 entrega o historico de metricas dos posts. Os demais endpoints continuam pendentes
 ou parciais; a criacao de reservas, cache em uso, custos e jobs duraveis
 ainda faltam. Atribuicao de dono e liberacao de reserva estao nos endpoints 3/4. As secoes posteriores registram as etapas ja concluidas.
 
@@ -44,11 +44,11 @@ ainda faltam. Atribuicao de dono e liberacao de reserva estao nos endpoints 3/4.
 | JWT de usuario/servico             | Base pronta                      | Ligar os guards as demais rotas MVP                    |
 | Normalizacao e fixtures            | Base pronta                      | Enriquecimento real pelo Reel Scraper nos jobs         |
 | Persistencia                       | Base pronta                      | Integrar os novos fluxos/jobs                          |
-| Leituras de perfil/posts/historico | Endpoints 5-7 prontos            | Validar com o adaptador do backend principal           |
+| Leituras de perfil/posts/historico | Endpoints 5-7 e 9 prontos        | Validar com o adaptador do backend principal           |
 | Convites, reserva e dono           | Parcial: endpoints 3 e 4 prontos | Endpoint 2 e Initial Sync                              |
 | Concorrentes/Watched               | Parcial                          | Contrato MVP, autorizacao e Initial/Watched Sync       |
 | Coleta diaria                      | Parcial                          | Hoje 10 posts/6h; guia pede 12/4h e jobs duraveis      |
-| Post Refresh e teto de seguranca   | Pendentes                        | Endpoints 8-10, deduplicacao, fuso e quota             |
+| Post Refresh e teto de seguranca   | Pendentes                        | Endpoints 8/10, deduplicacao, fuso e quota             |
 | Custos Apify                       | Estrutura pronta                 | Preencher ProviderRun e endpoint 12                    |
 | Discover/cache                     | Estrutura/provider prontos       | Endpoint 16, cache compartilhado e aquecimento         |
 | Deploy e integracao com backend    | Pendentes                        | Definir hospedagem/jobs e validar no ambiente acordado |
@@ -69,7 +69,7 @@ usam `{ response: ... }`; as novas leituras 5-7 retornam objetos diretos como no
 | 6   | GET /instagram/profiles/:profileId/posts                        | Pronto nesta etapa                                                                                                          | Validacao externa com o adaptador                                                                                      |
 | 7   | GET /instagram/profiles/:profileId/snapshots                    | Pronto nesta etapa                                                                                                          | Validacao externa com o adaptador                                                                                      |
 | 8   | GET /instagram/posts/:postId                                    | Ausente; POST /instagram/post/search coleta por username, não é equivalente                                                 | Frescor por lastCollectedAt, 200 ou 202, on_open assíncrono e deduplicação                                             |
-| 9   | GET /instagram/posts/:postId/metrics                            | Ausente                                                                                                                     | Histórico crescente, likesHidden/source, filtros e escopo; vazio é 200                                                 |
+| 9   | GET /instagram/posts/:postId/metrics                            | Pronto nesta etapa                                                                                                          | Validacao externa com o adaptador                                                                                      |
 | 10  | POST /instagram/posts/:postId/refresh                           | Ausente                                                                                                                     | Post salvo, 202, execução durável, deduplicação, teto de segurança e falha sem substituir histórico                    |
 | 11  | PATCH /internal/instagram/profiles/:profileId/monitoring        | Ausente                                                                                                                     | monitoringUntil e sua aplicação ao Daily; token de serviço                                                             |
 | 12  | GET /internal/costs                                             | Ausente                                                                                                                     | Agregações mensais de ProviderRun por usuário/trigger e custos não atribuídos                                          |
@@ -86,12 +86,12 @@ sem confirmar a compatibilidade desejada.
 
 JWT HS256 com iss/aud configuraveis e sub/iat/exp obrigatorios, duracao maxima
 de cinco minutos e guards separados de usuario/servico estao implementados.
-OWNER/COMPETITOR ja e calculado pelo banco nos endpoints 5-7. O guard de servico
-exige sub=hustleq-main e scope=service; as rotas internas ainda serao criadas.
+OWNER/COMPETITOR ja e calculado pelo banco nos endpoints 5-7 e 9. O guard de servico
+exige sub=hustleq-main e scope=service; os endpoints internos 3/4 ja usam esse guard.
 ownerUserId e atribuido explicitamente pelo endpoint interno 3, nunca por efeito de um GET.
 
 - O backend principal e o unico cliente. Nao criar login publico nem tabela User.
-- Leituras 5-7 usam o sub do JWT, sem confiar em claims OWNER/COMPETITOR, body ou
+- Leituras 5-7 e 9 usam o sub do JWT, sem confiar em claims OWNER/COMPETITOR, body ou
   query para decidir acesso. Perfis sem dono/relacao autorizada retornam 403.
 - Outras rotas ainda precisam ser criadas ou migradas para a autorizacao da MVP.
 - Erros de negocio usam error/code/message/time, UNAUTHENTICATED, FORBIDDEN,
@@ -104,15 +104,15 @@ ownerUserId e atribuido explicitamente pelo endpoint interno 3, nunca por efeito
 
 ## Banco - sete tabelas e migrations prontas
 
-| Tabela                      | Estado atual                                                  | Pendente                                                            |
-| --------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------- |
-| InstagramProfile            | Identidade, reserva, monitoramento, syncStatus e lastSyncedAt | Fluxos internos, elegibilidade e atualizacao pelos jobs             |
-| InstagramProfileSnapshot    | Contagens anulaveis e collectedAt; intervalo atual de 24h     | Resolver 20h/24h do guia antes de mudar os jobs                     |
-| InstagramCompetitor         | Relacao, endedAt, historico e limite de tres ativos           | Adaptar contrato/autorizacao e elegibilidade do Watched Sync        |
-| InstagramPost               | Conteudo e lastCollectedAt ligados a gravacao de metrica nova | Frescor de leitura/on_open no endpoint 8                            |
-| InstagramPostMetricSnapshot | Historico imutavel, likesHidden, source, views BigInt         | Endpoints 9/10 e fontes dos novos jobs; legado preserva source null |
-| DiscoverCache               | Modelo e migration aplicados                                  | Endpoint, chave normalizada, TTL e coordenacao de buscas            |
-| ProviderRun                 | Modelo, Decimal e indices aplicados                           | Registro das execucoes, custos, deduplicacao e recuperacao          |
+| Tabela                      | Estado atual                                                  | Pendente                                                         |
+| --------------------------- | ------------------------------------------------------------- | ---------------------------------------------------------------- |
+| InstagramProfile            | Identidade, reserva, monitoramento, syncStatus e lastSyncedAt | Fluxos internos, elegibilidade e atualizacao pelos jobs          |
+| InstagramProfileSnapshot    | Contagens anulaveis e collectedAt; intervalo atual de 24h     | Resolver 20h/24h do guia antes de mudar os jobs                  |
+| InstagramCompetitor         | Relacao, endedAt, historico e limite de tres ativos           | Adaptar contrato/autorizacao e elegibilidade do Watched Sync     |
+| InstagramPost               | Conteudo e lastCollectedAt ligados a gravacao de metrica nova | Frescor de leitura/on_open no endpoint 8                         |
+| InstagramPostMetricSnapshot | Historico imutavel, likesHidden, source, views BigInt         | Endpoint 10 e fontes dos novos jobs; legado preserva source null |
+| DiscoverCache               | Modelo e migration aplicados                                  | Endpoint, chave normalizada, TTL e coordenacao de buscas         |
+| ProviderRun                 | Modelo, Decimal e indices aplicados                           | Registro das execucoes, custos, deduplicacao e recuperacao       |
 
 Decisoes preservadas: IDs internos String/cuid(), sem conversao para UUID;
 FKs anteriores com Restrict; contagens e isVerified desconhecidos podem ser null.
@@ -438,3 +438,35 @@ verificacao de limpeza em finally tambem em falhas. O tempo das transacoes da
 API permanece 15s; nenhuma configuracao de producao foi ampliada. A repeticao
 real passou em aproximadamente 26s. Nao houve alteracao dos dados do schema
 public, chamada Apify, migration ou deploy. Pausar para o commit do usuario.
+
+## Etapa posterior F — historico de metricas dos posts (9)
+
+Implementado com routes, schemas, service e repository:
+
+- GET /api/v1/instagram/posts/:postId/metrics recebe o ID interno String do post,
+  devolvido pelo endpoint 6; nao recebe o instagramPostId externo.
+- Resposta direta com postId e metrics em collectedAt crescente, desempate por ID.
+  Filtros opcionais from/to na data da coleta, sem paginacao. Data simples inclui
+  o dia UTC inteiro; instante ISO tem limite inclusivo. Intervalo invalido e 400.
+- Usuario do JWT e acesso OWNER/COMPETITOR ativo conferidos na mesma transacao
+  RepeatableRead dos dados. Token de servico nao acessa essa rota. Post inexistente
+  e 404 POST_NOT_FOUND; post sem historico no intervalo e 200 com metrics vazio.
+- Historico inclui likesCount, likesHidden, commentsCount, viewsCount, collectedAt
+  e source. Legado mantem source null; origens conhecidas initial/daily/on_open/refresh.
+  Jobs on_open/refresh ainda nao existem: o contrato nao significa coleta implementada.
+- Curtidas ocultas, zero, contagens desconhecidas e views somente de Reels seguem
+  a mesma conversao usada pela listagem de posts, agora compartilhada. BigInt fora
+  da faixa segura gera erro, sem arredondar. Nao ha agregacao ou metrica derivada.
+- Nao chama Apify, nao inicia refresh e nao altera o banco, mesmo com dados antigos.
+  Falhas de banco nao viram lista vazia. Sem migration, mudanca de cron ou deploy.
+
+Estado: 6 endpoints prontos (3, 4, 5, 6, 7, 9), 4 parciais (1, 13, 14, 15)
+e 6 pendentes (2, 8, 10, 11, 12, 16). Pausar para o commit do usuario.
+
+Validacao concluida: 420 testes locais passaram, incluindo 32 novos testes de
+rota/contrato, autenticacao, acesso, datas, historico vazio, null/zero, curtidas
+ocultas e falhas. O teste PostgreSQL opt-in passou separadamente em cerca de 57s,
+com historico real, filtros, source legado, views BigInt, acesso por dono e
+relacao ativa e bloqueio apos encerramento. Rollback e ausencia do schema
+isolado confirmados. Typecheck, lint, format:check e build passaram. Nenhuma
+execucao Apify ou alteracao de dados publicos foi realizada.

@@ -302,7 +302,7 @@ continua pendente na etapa dos jobs.
 
 ## Leituras MVP — perfil, posts e histórico
 
-As três leituras abaixo usam somente o banco, sem chamar a Apify nem iniciar
+As quatro leituras abaixo usam somente o banco, sem chamar a Apify nem iniciar
 uma coleta. O JWT deve identificar o usuário da HustleQ em sub. O acesso exige
 que ele seja o dono do perfil (ownerUserId) ou dono de um perfil que o acompanha
 por uma relação ativa. Token de serviço não serve para essas rotas.
@@ -312,6 +312,7 @@ por uma relação ativa. Token de serviço não serve para essas rotas.
 | GET /api/v1/instagram/profiles/{profileId}           | Perfil salvo e metrics com o snapshot mais recente  |
 | GET /api/v1/instagram/profiles/{profileId}/posts     | Posts paginados e a métrica mais recente de cada um |
 | GET /api/v1/instagram/profiles/{profileId}/snapshots | Histórico crescente dos snapshots de perfil         |
+| GET /api/v1/instagram/posts/{postId}/metrics         | Histórico crescente das métricas de um post         |
 
 profileId é o ID interno String da tabela InstagramProfile, não instagramId.
 As respostas seguem os objetos diretos do guia, sem wrapper response. Elas não
@@ -407,3 +408,45 @@ Use esse token no POST/DELETE internos. Para ler o perfil pelos endpoints 5–7,
 use outro JWT, de usuário, com sub igual ao userId atribuído. Esses tokens não
 devem ser enviados ao navegador. O endpoint 2, que cria a reserva e inicia o
 Initial Sync, continua pendente da implementação dos jobs.
+
+## Histórico de métricas de um post
+
+Use o `id` interno do post devolvido pela listagem de posts do perfil, e não
+`instagramPostId`. Envie um JWT de usuário com acesso OWNER ou COMPETITOR ativo.
+
+```text
+GET /api/v1/instagram/posts/ID_INTERNO_DO_POST/metrics?from=2026-11-01&to=2026-11-21
+Authorization: Bearer <JWT>
+```
+
+Resposta direta, com os snapshots em ordem crescente de coleta:
+
+```json
+{
+  "postId": "ID_INTERNO_DO_POST",
+  "metrics": [
+    {
+      "likesCount": 125,
+      "likesHidden": false,
+      "commentsCount": 14,
+      "viewsCount": null,
+      "collectedAt": "2026-11-18T11:02:10.000Z",
+      "source": "initial"
+    }
+  ]
+}
+```
+
+`source` indica a origem da coleta: `initial`, `daily`, `on_open` ou `refresh`.
+O legado sem origem conhecida mantém `null`. As fontes `on_open` e `refresh`
+estão previstas no contrato; os jobs que as produzirão continuam pendentes.
+
+Os filtros opcionais `from`/`to` usam `collectedAt`, sem paginação. Datas simples
+incluem o dia inteiro em UTC; instantes ISO têm limites inclusivos. Post salvo
+sem snapshots no intervalo retorna 200 com `metrics: []`. Post inexistente
+retorna 404 `POST_NOT_FOUND`; sem acesso retorna 403 `FORBIDDEN`.
+
+A leitura não coleta nem altera dados, mesmo antigos. Curtidas ocultas retornam
+`likesCount: null` e `likesHidden: true`; contagens desconhecidas permanecem
+`null`, e zero continua zero. `viewsCount` só é devolvido para Reels. Falha do
+banco retorna erro, sem mascará-la como histórico vazio.

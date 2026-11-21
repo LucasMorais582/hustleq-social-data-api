@@ -1,6 +1,7 @@
 import { z } from 'zod/v4';
 import {
   publicCountSchema,
+  publicPostMetricSchema,
   readRangeFields,
   validateReadRange,
 } from '../shared/instagram.read.schemas.js';
@@ -38,13 +39,6 @@ export const storedProfileResponseSchema = z.object({
   syncStatus: z.enum(['pending', 'syncing', 'ready', 'failed']),
   lastSyncedAt: z.iso.datetime().nullable(),
   metrics: publicProfileSnapshotSchema.nullable(),
-});
-export const publicPostMetricSchema = z.object({
-  likesCount: publicCountSchema,
-  likesHidden: z.boolean(),
-  commentsCount: publicCountSchema,
-  viewsCount: z.int().min(0).max(Number.MAX_SAFE_INTEGER).nullable(),
-  collectedAt: z.iso.datetime(),
 });
 export const storedPostResponseSchema = z.object({
   id: z.string(),
