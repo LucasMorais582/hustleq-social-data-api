@@ -1,3 +1,9 @@
+import {
+  readStoredInstagramProfile,
+  readStoredInstagramPosts,
+  readStoredInstagramProfileSnapshots,
+} from '../src/modules/instagram/profile/instagram.profile.read.repository.js';
+import { serializeStoredInstagramPost } from '../src/modules/instagram/profile/instagram.profile.read.service.js';
 import 'dotenv/config';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -9,7 +15,7 @@ import { saveProfileCollection } from '../src/modules/instagram/profile/instagra
 // Opt-in: cria um schema isolado dentro de uma transação e sempre faz rollback.
 // Não consulta/modifica dados do schema public e não chama a Apify.
 describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')('MVP migration on PostgreSQL', () => {
-  it('preserves legacy data, writes new metadata and rolls back the isolated schema', async () => {
+  it('preserves data, validates metadata and authorized reads, then rolls back the schema', async () => {
     const connection = process.env.DIRECT_URL ?? process.env.DATABASE_URL;
     if (!connection) throw new Error('Configure DIRECT_URL ou DATABASE_URL para o teste opt-in');
     const namespace = `mvp_test_${randomUUID().replaceAll('-', '')}`;
@@ -165,6 +171,80 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')('MVP migration on Post
               data: { actor: 'test-actor', trigger: 'search', status: 'failed' },
             });
             expect(unknownCost.costUsd).toBeNull();
+            // Leituras da MVP: dados salvos, autorização por dono/relação e filtros reais.
+            await tx.instagramProfile.update({
+              where: { id: 'legacy-profile' },
+              data: { ownerUserId: 'owner-user' },
+            });
+            const profileRead = await readStoredInstagramProfile(
+              'legacy-profile',
+              'owner-user',
+              injected,
+            );
+            expect(profileRead?.snapshots).toHaveLength(1);
+            expect(profileRead).not.toHaveProperty('ownerUserId');
+            expect(profileRead?.isVerified).toBeNull();
+            const page = await readStoredInstagramPosts(
+              'legacy-profile',
+              'owner-user',
+              { page: 1, limit: 30, type: 'IMAGE', from: '2026-11-17', to: '2026-11-17' },
+              injected,
+            );
+            expect(page.total).toBe(1);
+            expect(page.posts).toHaveLength(1);
+            expect(page.posts[0]?.metricSnapshots).toHaveLength(1);
+            expect(serializeStoredInstagramPost(page.posts[0]!)).toMatchObject({
+              type: 'IMAGE',
+              metrics: { likesCount: 5, likesHidden: false, viewsCount: null },
+            });
+            expect(
+              (
+                await readStoredInstagramPosts(
+                  'legacy-profile',
+                  'owner-user',
+                  { page: 2, limit: 30, type: 'IMAGE' },
+                  injected,
+                )
+              ).posts,
+            ).toEqual([]);
+            expect(
+              await readStoredInstagramProfileSnapshots(
+                'legacy-profile',
+                'owner-user',
+                { from: '2026-11-18', to: '2026-11-18' },
+                injected,
+              ),
+            ).toHaveLength(1);
+            expect(
+              await readStoredInstagramProfileSnapshots(
+                'legacy-profile',
+                'owner-user',
+                { to: '2026-11-17' },
+                injected,
+              ),
+            ).toEqual([]);
+            await expect(
+              readStoredInstagramProfile('legacy-profile', 'unrelated-user', injected),
+            ).rejects.toMatchObject({ statusCode: 403 });
+            const watched = await tx.instagramProfile.create({
+              data: { instagramId: 'watched-ig', username: 'watched' },
+            });
+            const relation = await tx.instagramCompetitor.create({
+              data: { instagramProfileId: 'legacy-profile', competitorProfileId: watched.id },
+            });
+            expect(
+              await readStoredInstagramProfile(watched.id, 'owner-user', injected),
+            ).toMatchObject({ id: watched.id, snapshots: [] });
+            await tx.instagramCompetitor.update({
+              where: { id: relation.id },
+              data: { endedAt: tomorrow },
+            });
+            await expect(
+              readStoredInstagramProfile(watched.id, 'owner-user', injected),
+            ).rejects.toMatchObject({ statusCode: 403 });
+            await expect(
+              readStoredInstagramProfile('missing-profile', 'owner-user', injected),
+            ).rejects.toMatchObject({ code: 'PROFILE_NOT_FOUND' });
             throw rollback;
           },
           { timeout: 45000, maxWait: 10000 },

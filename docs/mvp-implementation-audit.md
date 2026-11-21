@@ -28,17 +28,36 @@ Há uma base funcional de coleta e persistência, não a entrega completa dos
 16 endpoints do guia. Nenhum item deve ser considerado integralmente compatível
 apenas por ter uma rota parecida: faltam contratos, autorização ou jobs.
 
-Existem cinco modelos Prisma e uma migration inicial versionada. A aplicação
-possui rotas legadas de coleta, concorrentes com confirmação e um cron simples.
-Não há DiscoverCache, ProviderRun, reserva de convites nem execução durável
-de jobs. Esta auditoria não reaplicou migrations, não consultou o banco e não
-executou Actors. O estado implantado deve ser verificado na etapa apropriada.
+Situacao atualizada em 21/11/2026: as sete tabelas estao modeladas e suas
+migrations foram aplicadas ao Supabase de desenvolvimento. Ha persistencia,
+normalizacao e guards JWT de usuario/servico. Os endpoints 5, 6 e 7 usam
+OWNER/COMPETITOR nas leituras do banco. Os demais endpoints continuam pendentes
+ou parciais; reservas, atribuicao de dono, cache em uso, custos e jobs duraveis
+ainda faltam. As secoes posteriores registram as etapas ja concluidas.
+
+## Funcionalidades - acompanhamento atual
+
+| Funcionalidade                     | Situacao                   | O que falta                                            |
+| ---------------------------------- | -------------------------- | ------------------------------------------------------ |
+| Sete tabelas e migrations          | Prontas                    | Evolucoes quando necessarias nas proximas etapas       |
+| IDs string e legado                | Prontos                    | Alinhamento externo sobre CUID, que nao e UUID         |
+| JWT de usuario/servico             | Base pronta                | Ligar os guards as demais rotas MVP                    |
+| Normalizacao e fixtures            | Base pronta                | Enriquecimento real pelo Reel Scraper nos jobs         |
+| Persistencia                       | Base pronta                | Integrar os novos fluxos/jobs                          |
+| Leituras de perfil/posts/historico | Endpoints 5-7 prontos      | Validar com o adaptador do backend principal           |
+| Convites, reserva e dono           | Pendentes                  | Endpoints 2-4 e Initial Sync                           |
+| Concorrentes/Watched               | Parcial                    | Contrato MVP, autorizacao e Initial/Watched Sync       |
+| Coleta diaria                      | Parcial                    | Hoje 10 posts/6h; guia pede 12/4h e jobs duraveis      |
+| Post Refresh e teto de seguranca   | Pendentes                  | Endpoints 8-10, deduplicacao, fuso e quota             |
+| Custos Apify                       | Estrutura pronta           | Preencher ProviderRun e endpoint 12                    |
+| Discover/cache                     | Estrutura/provider prontos | Endpoint 16, cache compartilhado e aquecimento         |
+| Deploy e integracao com backend    | Pendentes                  | Definir hospedagem/jobs e validar no ambiente acordado |
 
 ## Inventário dos 16 endpoints
 
 Os caminhos do guia não incluem o prefixo. Hoje as rotas de negócio usam
-`/api/v1`; confirmar esse prefixo com o backend principal. As respostas atuais
-costumam usar `{ response: ... }`, enquanto o guia mostra objetos diretos.
+`/api/v1`; confirmar esse prefixo com o backend principal. As rotas legadas
+usam `{ response: ... }`; as novas leituras 5-7 retornam objetos diretos como no guia.
 
 | #   | Endpoint do guia                                                | Situação no código                                                                                                          | Trabalho pendente                                                                                                      |
 | --- | --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
@@ -46,9 +65,9 @@ costumam usar `{ response: ... }`, enquanto o guia mostra objetos diretos.
 | 2   | POST /internal/instagram/profiles                               | Ausente                                                                                                                     | Reserva por convite, conflitos de dono/reserva, disparo Initial Sync sem aguardar                                      |
 | 3   | POST /internal/instagram/profiles/:profileId/owner              | Ausente                                                                                                                     | Atribuição de dono por token de serviço, limpeza da reserva e conflitos                                                |
 | 4   | DELETE /internal/instagram/profiles/:profileId/reservation      | Ausente                                                                                                                     | Liberar reserva, preservar dados, 204                                                                                  |
-| 5   | GET /instagram/profiles/:profileId                              | Ausente                                                                                                                     | Identidade + snapshot mais recente, syncStatus, lastSyncedAt, escopo; somente banco                                    |
-| 6   | GET /instagram/profiles/:profileId/posts                        | Ausente                                                                                                                     | Posts do banco com métrica mais recente, filtros, ordem por data e paginação com total; limit máximo 50                |
-| 7   | GET /instagram/profiles/:profileId/snapshots                    | Ausente                                                                                                                     | Histórico crescente, intervalo de datas, escopo, sem paginação                                                         |
+| 5   | GET /instagram/profiles/:profileId                              | Pronto nesta etapa                                                                                                          | Validacao externa; isVerified pode ser null por decisao do usuario                                                     |
+| 6   | GET /instagram/profiles/:profileId/posts                        | Pronto nesta etapa                                                                                                          | Validacao externa com o adaptador                                                                                      |
+| 7   | GET /instagram/profiles/:profileId/snapshots                    | Pronto nesta etapa                                                                                                          | Validacao externa com o adaptador                                                                                      |
 | 8   | GET /instagram/posts/:postId                                    | Ausente; POST /instagram/post/search coleta por username, não é equivalente                                                 | Frescor por lastCollectedAt, 200 ou 202, on_open assíncrono e deduplicação                                             |
 | 9   | GET /instagram/posts/:postId/metrics                            | Ausente                                                                                                                     | Histórico crescente, likesHidden/source, filtros e escopo; vazio é 200                                                 |
 | 10  | POST /instagram/posts/:postId/refresh                           | Ausente                                                                                                                     | Post salvo, 202, execução durável, deduplicação, teto de segurança e falha sem substituir histórico                    |
@@ -63,64 +82,47 @@ O guia afirma contrato de Watched sem mudanças, mas difere do fluxo de
 confirmação implementado e aprovado nesta conversa. Não substituir esse fluxo
 sem confirmar a compatibilidade desejada.
 
-## Autenticação e erros
+## Autenticacao e erros - estado atual
 
-Já existem verificação HS256, iss/aud configuráveis, sub/exp obrigatórios e
-Bearer JWT nas rotas de negócio. Ainda não há distinção entre usuário e serviço
-nem verificação de propriedade/relação ativa. ownerUserId ainda não é atribuído.
+JWT HS256 com iss/aud configuraveis e sub/iat/exp obrigatorios, duracao maxima
+de cinco minutos e guards separados de usuario/servico estao implementados.
+OWNER/COMPETITOR ja e calculado pelo banco nos endpoints 5-7. O guard de servico
+exige sub=hustleq-main e scope=service; as rotas internas ainda serao criadas.
+ownerUserId continua sem atribuicao automatica porque o fluxo interno esta pendente.
 
-Pendências:
+- O backend principal e o unico cliente. Nao criar login publico nem tabela User.
+- Leituras 5-7 usam o sub do JWT, sem confiar em claims OWNER/COMPETITOR, body ou
+  query para decidir acesso. Perfis sem dono/relacao autorizada retornam 403.
+- Outras rotas ainda precisam ser criadas ou migradas para a autorizacao da MVP.
+- Erros de negocio usam error/code/message/time, UNAUTHENTICATED, FORBIDDEN,
+  INVALID_REQUEST, RATE_LIMITED e PROVIDER_UNAVAILABLE, com falhas internas
+  sanitizadas. O cron legado mantem seu contrato anterior ate a migracao dos jobs.
+- Search inexistente ainda e 404 no legado; o endpoint 1 novo devera usar 200 e
+  ownershipStatus=not_found. Resposta para perfil privado continua a esclarecer
+  ao criar esse endpoint. Falha operacional nao deve virar perfil inexistente.
+- Aquecimento Discover e jobs com token de servico continuam pendentes.
 
-- Rotas de usuário: sub deve identificar o usuário da HustleQ; derivar OWNER
-  de ownerUserId e COMPETITOR das relações ativas dos perfis desse usuário.
-- Rotas internal: exigir sub=hustleq-main e scope=service, recusando demais com 403.
-- Aquecimento Discover com serviço não deve consumir cota de usuário.
-- Token por chamada com validade de cinco minutos; a emissão local atual usa
-  uma hora por padrão. Alinhar a validação temporal e exemplos com o emissor.
-- O cron atual usa CRON_SECRET, não token de serviço. Definir como coexistirá
-  com os jobs e chamadas do backend principal.
-- Padronizar erros como `{ error: { code, message, time } }`. Hoje o formato é
-  `{ statusCode, code, message }`, além de erros próprios do Fastify/cron.
-- Códigos atuais como UNAUTHORIZED, COMPETITOR_ALREADY_ACTIVE e
-  PROVIDER_RATE_LIMITED diferem de UNAUTHENTICATED,
-  COMPETITOR_ALREADY_REGISTERED e RATE_LIMITED do guia.
-- Search inexistente no guia é 200/not_found; hoje é 404/PROFILE_NOT_FOUND.
-  Perfil privado já tem erro próprio; esclarecer sua resposta no novo contrato.
-- O lookup sem perfil não deve ser confundido com falha operacional do provider.
+## Banco - sete tabelas e migrations prontas
 
-O backend principal continuará sendo o único cliente. Não criar login público,
-token no navegador, cálculos de Analytics ou entidade User nesta API.
+| Tabela                      | Estado atual                                                  | Pendente                                                            |
+| --------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------- |
+| InstagramProfile            | Identidade, reserva, monitoramento, syncStatus e lastSyncedAt | Fluxos internos, elegibilidade e atualizacao pelos jobs             |
+| InstagramProfileSnapshot    | Contagens anulaveis e collectedAt; intervalo atual de 24h     | Resolver 20h/24h do guia antes de mudar os jobs                     |
+| InstagramCompetitor         | Relacao, endedAt, historico e limite de tres ativos           | Adaptar contrato/autorizacao e elegibilidade do Watched Sync        |
+| InstagramPost               | Conteudo e lastCollectedAt ligados a gravacao de metrica nova | Frescor de leitura/on_open no endpoint 8                            |
+| InstagramPostMetricSnapshot | Historico imutavel, likesHidden, source, views BigInt         | Endpoints 9/10 e fontes dos novos jobs; legado preserva source null |
+| DiscoverCache               | Modelo e migration aplicados                                  | Endpoint, chave normalizada, TTL e coordenacao de buscas            |
+| ProviderRun                 | Modelo, Decimal e indices aplicados                           | Registro das execucoes, custos, deduplicacao e recuperacao          |
 
-## Banco: cinco tabelas atuais e duas pendentes
+Decisoes preservadas: IDs internos String/cuid(), sem conversao para UUID;
+FKs anteriores com Restrict; contagens e isVerified desconhecidos podem ser null.
+Datas de coleta novas nao receberam backfill no legado. Source antigo fica null,
+com novas gravacoes initial/daily; on_open/refresh dependem dos jobs. Nao ha User.
 
-| Tabela                      | Já existe                                                          | Alterações previstas pelo guia                                                              |
-| --------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
-| InstagramProfile            | Identidade, ownerUserId opcional, relação com posts/snapshots      | reservedForInviteId, reservedUntil, monitoringUntil, syncStatus, lastSyncedAt               |
-| InstagramProfileSnapshot    | Contagens anuláveis e collectedAt; intervalo transacional de 24h   | Resolver contradição 20h/24h; guia sugere contagens não anuláveis                           |
-| InstagramCompetitor         | Relação Profile → Profile, endedAt e histórico, máximo três ativos | Autorizar por dono/relação e integrar elegibilidade ao Watched Sync                         |
-| InstagramPost               | Identidade externa única, conteúdo, arrays e perfil                | lastCollectedAt e normalização/serialização do contrato                                     |
-| InstagramPostMetricSnapshot | Histórico imutável; viewsCount BigInt                              | likesHidden e source initial/daily/on_open/refresh; estratégia para registros antigos       |
-| DiscoverCache               | Não                                                                | Chave normalizada única, resultado JSON e fetchedAt                                         |
-| ProviderRun                 | Não                                                                | Actor, run ID, trigger, perfil/post, userId, itens, custo Decimal, status, erro e instantes |
-
-Decisões a confirmar antes da migration:
-
-- IDs atuais usam String com cuid(), guia fala UUID. Nenhum ID existente será
-  convertido automaticamente. Manter string não é o mesmo que garantir UUID.
-- FKs atuais usam Restrict para preservar histórico; exemplos do guia usam
-  Cascade em algumas relações. Não introduzir exclusão em cascata sem aprovação.
-- Contagens/isVerified e alguns campos de post hoje aceitam null para dados
-  indisponíveis; o guia combina exemplos obrigatórios com a regra de nunca
-  inventar campos ausentes. Definir defaults/backfill sem fabricar números.
-- BigInt protege views grandes; não reduzir a Int sem avaliar limite e precisão.
-  O contrato JSON exige conversão explícita; bigint nativo não é serializável.
-- syncStatus pending/syncing/ready/failed e ProviderRun running/succeeded/failed
-  precisam validação e transições claras. Definir recuperação de running antigo.
-- ProviderRun tem IDs opcionais no exemplo. Definir relações/índices e mecanismo
-  de trava transacional; um simples findFirst seguido de create não impede
-  duas requisições simultâneas de iniciar a mesma coleta.
-- Não marcar dados antigos como recém-coletados ao preencher lastCollectedAt
-  ou lastSyncedAt. Propor backfill baseado no histórico ou deixar null.
+Views BigInt sao convertidas nas leituras novas apenas dentro da faixa segura
+do JSON Number; valores maiores geram erro sem arredondamento. Os proximos jobs
+precisam implementar transicoes de status e trava duravel: apenas consultar
+ProviderRun e depois criar uma linha nao impede execucoes concorrentes.
 
 ## Jobs: base atual e lacunas
 
@@ -166,7 +168,10 @@ Confirmar o significado de três tentativas com esperas de 1, 5 e 15min.
   não deve descontar a cota comercial; alinhar como o backend principal acompanha
   o resultado e o que conta no teto de segurança.
 
-## Normalização: reaproveitar e corrigir
+## Normalização: diagnóstico inicial e correções nas etapas C/D
+
+O diagnóstico inicial abaixo é de 19/11/2026; as correções entregues estão
+registradas nas etapas C/D e na tabela atual de funcionalidades.
 
 Já existe normalização compartilhada de tipos, exclusão de hashtags sem letras,
 IDs externos string, métricas desconhecidas null e proteção contra troca de autor.
@@ -351,3 +356,46 @@ e depois outro com curtidas públicas, preservando o histórico e source do lega
 A execução paralela de ferramentas apresentou timeouts em testes de rota; a suíte
 passou isoladamente, sem aumentar timeouts nem modificar a configuração de testes.
 Não usar duração de testes mockados como evidência de SLA do Apify.
+
+## Etapa posterior D — leituras de perfil, posts e snapshots (5–7)
+
+Decisões: isVerified permanece null quando desconhecido, por confirmação do
+usuário; não converter ausência em false. Continuar atualizando as tabelas de
+funcionalidades e dos 16 endpoints ao concluir cada funcionalidade.
+
+Implementado com routes, schemas, service e repository:
+
+- GET /api/v1/instagram/profiles/:profileId: identidade salva, syncStatus,
+  lastSyncedAt e snapshot mais recente; metrics null se ainda não coletado.
+- GET /api/v1/instagram/profiles/:profileId/posts: filtros por data de publicação
+  e tipo IMAGE/CAROUSEL/REEL, page=1, limit=30 (máximo 50), total/totalPages e
+  métrica mais recente de cada post. Ordenação por timestamp desc, nulos no fim
+  e desempate estável por ID. Página além do total retorna lista vazia.
+- GET /api/v1/instagram/profiles/:profileId/snapshots: collectedAt crescente,
+  filtros from/to, sem paginação, sem criar dias ou números ausentes.
+- Autenticação de usuário e escopo OWNER/COMPETITOR consultado na mesma transação
+  RepeatableRead dos dados. Relação deve estar ativa e partir de um perfil
+  pertencente ao usuário do JWT. Token de serviço não acessa essas rotas.
+- Nenhuma chamada Apify, Actor, escrita ou coleta em resposta a esses GETs.
+  Dados antigos continuam sendo devolvidos; jobs futuros atualizarão a origem.
+- Datas simples YYYY-MM-DD incluem o dia inteiro em UTC; instantes ISO têm
+  limites inclusivos, com suporte a offset. Intervalo invertido é 400.
+- Dados desconhecidos ficam null; métricas ausentes ficam metrics=null. Views
+  somente de REEL, BigInt convertido sem arredondar para Number seguro do JSON.
+  Valor fora da faixa segura gera INTERNAL_ERROR, não um número inventado.
+- Selects e schemas limitam o contrato, sem expor ownerUserId, reservas ou
+  informações internas de execução. Identidade/hashtags legadas são normalizadas
+  apenas no retorno, sem sobrescrever o histórico no banco.
+
+A atribuição de ownerUserId ainda depende do endpoint interno 3 (ou preparação
+manual de dados de desenvolvimento pelo responsável). Perfis legados sem dono
+nem relação ativa não ficam públicos; retornam 403. Não atribuir dono como efeito
+colateral de uma leitura nem afrouxar autorização para facilitar demonstração.
+
+Não houve migration, mudança de cron, quota ou deploy nesta etapa.
+Validacao concluida: 355 testes locais passaram; o teste PostgreSQL opt-in
+passou separadamente, incluindo acesso por dono/relacao ativa, bloqueio apos
+encerramento, filtros, paginacao e preservacao do historico. O schema isolado foi
+revertido e sua ausencia foi confirmada. Typecheck, lint, format:check e build
+passaram. Nenhuma execucao Apify foi iniciada, nem dados do schema public foram
+alterados. Pausar para o commit do usuario antes da proxima etapa.

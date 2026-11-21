@@ -254,8 +254,7 @@ continua com CRON_SECRET e seu contrato anterior até a migração dos jobs.
 
 As verificações reutilizáveis de leitura OWNER/COMPETITOR foram preparadas em
 `src/auth/instagram-access.ts`, com base em ownerUserId e em relações ativas
-pertencentes a perfis do usuário. Elas serão ligadas às novas leituras do banco
-quando esses endpoints forem criados. As rotas legadas de coleta/concorrentes
+pertencentes a perfis do usuário. Elas agora protegem as novas leituras 5, 6 e 7 do banco. As rotas legadas de coleta/concorrentes
 continuam temporariamente com autenticação JWT, sem autorização por proprietário;
 ainda não estão no contrato completo da MVP. Não liberar a integração de produção
 como se essa migração já estivesse concluída.
@@ -300,3 +299,51 @@ oficial do Reel Scraper (https://apify.com/apify/instagram-reel-scraper). Elas u
 identificadores/textos/URLs substituídos e casos sintéticos de limite. Não são
 novas execuções reais. A validação de execução e enriquecimento com o Actor
 continua pendente na etapa dos jobs.
+
+## Leituras MVP — perfil, posts e histórico
+
+As três leituras abaixo usam somente o banco, sem chamar a Apify nem iniciar
+uma coleta. O JWT deve identificar o usuário da HustleQ em sub. O acesso exige
+que ele seja o dono do perfil (ownerUserId) ou dono de um perfil que o acompanha
+por uma relação ativa. Token de serviço não serve para essas rotas.
+
+| Endpoint                                             | Resposta                                            |
+| ---------------------------------------------------- | --------------------------------------------------- |
+| GET /api/v1/instagram/profiles/{profileId}           | Perfil salvo e metrics com o snapshot mais recente  |
+| GET /api/v1/instagram/profiles/{profileId}/posts     | Posts paginados e a métrica mais recente de cada um |
+| GET /api/v1/instagram/profiles/{profileId}/snapshots | Histórico crescente dos snapshots de perfil         |
+
+profileId é o ID interno String da tabela InstagramProfile, não instagramId.
+As respostas seguem os objetos diretos do guia, sem wrapper response. Elas não
+expõem ownerUserId ou campos de reserva. syncStatus e lastSyncedAt refletem o
+que está salvo; a leitura não altera esses campos nem descarta dados antigos.
+Por decisão do usuário, isVerified continua null quando desconhecido.
+
+Posts aceitam from, to, type=IMAGE|CAROUSEL|REEL, page (padrão 1) e limit
+(padrão 30, máximo 50). total corresponde aos posts **salvos** que atendem aos
+filtros, não à contagem total do Instagram. A ordem é timestamp decrescente,
+com datas desconhecidas no fim e desempate estável por ID. Página acima do total
+retorna posts=[]; quando não há resultados, totalPages=0. Tipos da resposta são
+IMAGE/CAROUSEL/REEL. Sem snapshot, metrics=null; valores desconhecidos continuam
+null. Views só são devolvidas em REEL e sem arredondamento de BigInt.
+
+Snapshots aceitam from/to e são devolvidos em collectedAt crescente, sem
+paginação nem criação de dias ausentes. Datas simples, como to=2026-11-21,
+incluem o dia UTC inteiro; instantes ISO são limites inclusivos. Nos posts, o
+intervalo filtra timestamp de publicação; no histórico, filtra collectedAt.
+
+Exemplo, usando o ID interno real do perfil:
+
+```text
+GET /api/v1/instagram/profiles/ID_INTERNO/posts?type=REEL&page=1&limit=30&from=2026-11-01&to=2026-11-21
+```
+
+Um perfil inexistente retorna 404 PROFILE_NOT_FOUND; perfil existente sem escopo
+retorna 403 FORBIDDEN. Histórico vazio retorna 200 e lista vazia. Falha no banco
+retorna erro, sem fingir ausência de dados ou tentar consultar a Apify.
+Perfis legados com ownerUserId nulo precisam da atribuição de dono pelo fluxo
+interno que ainda será implementado; estes GETs não fazem essa atribuição.
+
+A tabela completa de funcionalidades e dos 16 endpoints fica na
+[memória de implementação](docs/mvp-implementation-audit.md) e será atualizada
+a cada etapa concluída.
