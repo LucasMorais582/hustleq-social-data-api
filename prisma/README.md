@@ -286,3 +286,36 @@ e build passaram. O schema do banco corresponde ao Prisma (migrate diff sem
 diferenças). Os 14 snapshots existentes ficaram com source null; as duas tabelas
 novas estão vazias. Reinicie o servidor local para carregar o Prisma Client
 regenerado antes de testar novamente as rotas.
+
+## Etapa 8 — fila persistente na VPS (preparada para commit)
+
+O usuario confirmou VPS e autorizou uma oitava tabela, InstagramSyncJob, como
+infraestrutura interna dos cinco jobs. Nao e um novo endpoint de negocio.
+Migration: `20261123000000_add_instagram_sync_jobs`.
+
+Cada tarefa guarda tipo/estado, trigger, alvo de perfil/post por ID interno,
+userId externo opcional, payload JSON opcional, tentativas e proxima execucao.
+Os campos de posse (`lockedAt`, `leaseExpiresAt`, `lockToken`) preparam a
+recuperacao pelo futuro worker. Nunca colocar tokens/credenciais no payload.
+
+`activeKey` e unica entre tarefas ativas. A conclusao deve limpar essa chave,
+os campos de posse e definir finishedAt, preservando o registro antigo. A
+construcao consistente da chave e a captura atomica da tarefa ainda precisam
+ser implementadas. Campos de lock nao implementam uma trava por si mesmos.
+
+A migration inclui CHECKs SQL para estados coerentes, contador nao negativo e
+alvo compativel com o tipo. O Prisma nao representa esses CHECKs: preservar o
+SQL em migrations futuras. As FKs usam Restrict. IDs permanecem String/cuid.
+
+ProviderRun continua registrando cada execucao real da Apify e seu custo;
+InstagramSyncJob guarda a tarefa, que pode envolver mais de uma execucao.
+Nenhum worker, disparo de Actor ou endpoint de fila foi criado nesta etapa.
+
+Teste opt-in em schema temporario, com rollback e sem alterar public:
+
+```bash
+RUN_DATABASE_TESTS=true npx vitest run tests/instagram-sync-job-migration.integration.test.ts
+```
+
+A migration esta preparada e nao foi aplicada ao schema public. Depois do commit,
+a proxima etapa aplicara a migration ao desenvolvimento e implementara a fila.

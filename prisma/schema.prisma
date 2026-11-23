@@ -14,6 +14,21 @@ enum InstagramMediaType {
   reel
 }
 
+enum InstagramSyncJobType {
+  INITIAL_PROFILE_SYNC
+  DAILY_PROFILE_SYNC
+  WATCHED_SYNC
+  POST_REFRESH
+  DISCOVER_SEARCH
+}
+
+enum InstagramSyncJobStatus {
+  PENDING
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
 model InstagramProfile {
   id                  String    @id @default(cuid())
   // ID externo do usuário HustleQ. A atribuição será feita pelas rotas internas.
@@ -39,6 +54,7 @@ model InstagramProfile {
   posts                InstagramPost[]
   monitoredCompetitors InstagramCompetitor[]      @relation("MonitoringProfile")
   monitoredBy          InstagramCompetitor[]      @relation("CompetitorProfile")
+  syncJobs             InstagramSyncJob[]
 
   @@index([ownerUserId])
   @@index([username])
@@ -94,6 +110,7 @@ model InstagramPost {
 
   instagramProfile InstagramProfile              @relation(fields: [instagramProfileId], references: [id], onDelete: Restrict)
   metricSnapshots  InstagramPostMetricSnapshot[]
+  syncJobs         InstagramSyncJob[]
 
   @@index([instagramProfileId, timestamp])
 }
@@ -145,4 +162,39 @@ model ProviderRun {
   @@index([userId, startedAt])
   @@index([instagramPostId, status])
   @@index([instagramProfileId, status])
+}
+
+// Fila durável na VPS. Não representa uma execução de Actor ou seu custo.
+model InstagramSyncJob {
+  id                 String                 @id @default(cuid())
+  type               InstagramSyncJobType
+  status             InstagramSyncJobStatus @default(PENDING)
+  trigger            String
+  instagramProfileId String?
+  // InstagramPost.id interno, não o identificador externo do Instagram.
+  instagramPostId    String?
+  userId             String?
+  // Dados mínimos para executar a tarefa; nunca tokens ou credenciais.
+  payload            Json?
+  // Chave compartilhada pelos jobs do mesmo recurso enquanto pendentes/em execução.
+  // A conclusão deve limpá-la para permitir novas coletas, preservando o histórico.
+  activeKey          String?                @unique
+  attempts           Int                    @default(0)
+  runAt              DateTime               @default(now()) @db.Timestamptz(3)
+  lockedAt           DateTime?              @db.Timestamptz(3)
+  leaseExpiresAt     DateTime?              @db.Timestamptz(3)
+  // Token de posse do worker; a retomada futura deve trocar esse token.
+  lockToken          String?
+  lastError          String?
+  finishedAt         DateTime?              @db.Timestamptz(3)
+  createdAt          DateTime               @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime               @updatedAt @db.Timestamptz(3)
+
+  instagramProfile InstagramProfile? @relation(fields: [instagramProfileId], references: [id], onDelete: Restrict)
+  instagramPost    InstagramPost?    @relation(fields: [instagramPostId], references: [id], onDelete: Restrict)
+
+  @@index([status, runAt, createdAt])
+  @@index([status, leaseExpiresAt])
+  @@index([instagramProfileId, createdAt])
+  @@index([instagramPostId, createdAt])
 }
