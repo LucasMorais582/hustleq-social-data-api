@@ -19,13 +19,18 @@ describe('daily refresh of stored Instagram profiles', () => {
     expect(findMany).not.toHaveBeenCalled();
     expect(collect).not.toHaveBeenCalled();
   });
-  it('collects every stored profile with its expected identity and window start', async () => {
+  it('collects eligible profiles with their expected identity and window start', async () => {
     findMany.mockResolvedValue([
       { instagramId: 'id1', username: 'one' },
       { instagramId: 'id2', username: 'two' },
     ]);
     collect.mockResolvedValue({});
     const result = await runInstagramRefresh(now, () => 0);
+    expect(findMany).toHaveBeenCalledWith({
+      where: { OR: [{ monitoringUntil: null }, { monitoringUntil: { gt: now } }] },
+      orderBy: { id: 'asc' },
+      select: { instagramId: true, username: true },
+    });
     expect(result).toMatchObject({ total: 2, processed: 2, succeeded: 2, failed: 0, pending: 0 });
     expect(collect).toHaveBeenNthCalledWith(
       1,

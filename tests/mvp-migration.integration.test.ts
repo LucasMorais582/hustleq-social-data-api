@@ -1,7 +1,10 @@
+import { getStoredInstagramPostMetrics } from '../src/modules/instagram/post/instagram.post.read.service.js';
 import {
   assignInstagramProfileOwner,
   clearInstagramProfileReservation,
+  updateInstagramProfileMonitoring,
 } from '../src/modules/instagram/profile/instagram.profile.internal.service.js';
+import { findProfilesForInstagramRefresh } from '../src/modules/instagram/refresh/instagram.refresh.repository.js';
 import {
   readStoredInstagramProfile,
   readStoredInstagramPosts,
@@ -86,6 +89,34 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')('MVP migration on Post
             const injected = {
               $transaction: (work: (value: typeof tx) => Promise<unknown>) => work(tx),
             } as unknown as PrismaClient;
+            const monitoring = await updateInstagramProfileMonitoring(
+              'legacy-profile',
+              '2026-11-18T12:00:00Z',
+              injected,
+            );
+            expect(monitoring).toMatchObject({
+              id: 'legacy-profile',
+              monitoringUntil: '2026-11-18T12:00:00.000Z',
+              isVerified: null,
+              lastSyncedAt: null,
+            });
+            expect(await findProfilesForInstagramRefresh(timestamp, tx)).toEqual([
+              { instagramId: 'legacy-ig', username: 'legacy' },
+            ]);
+            // No instante de vencimento e depois dele, o perfil não é elegível.
+            expect(
+              await findProfilesForInstagramRefresh(new Date('2026-11-18T12:00:00Z'), tx),
+            ).toEqual([]);
+            expect(
+              await findProfilesForInstagramRefresh(new Date('2026-11-19T12:00:00Z'), tx),
+            ).toEqual([]);
+            expect(
+              (await updateInstagramProfileMonitoring('legacy-profile', null, injected))
+                .monitoringUntil,
+            ).toBeNull();
+            expect(
+              await findProfilesForInstagramRefresh(new Date('2026-11-19T12:00:00Z'), tx),
+            ).toHaveLength(1);
             const post = {
               instagramPostId: 'new-post-ig',
               type: 'photo' as const,
@@ -263,6 +294,63 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')('MVP migration on Post
             await expect(
               readStoredInstagramProfile('legacy-profile', 'unrelated-user', injected),
             ).rejects.toMatchObject({ statusCode: 403 });
+            const history = await getStoredInstagramPostMetrics(
+              saved.id,
+              'owner-user',
+              {},
+              injected,
+            );
+            expect(history.postId).toBe(saved.id);
+            expect(history.metrics).toHaveLength(2);
+            expect(history.metrics[0]).toMatchObject({
+              source: 'initial',
+              likesCount: null,
+              likesHidden: true,
+              collectedAt: timestamp.toISOString(),
+            });
+            expect(history.metrics[1]).toMatchObject({
+              source: 'daily',
+              likesCount: 5,
+              likesHidden: false,
+              collectedAt: tomorrow.toISOString(),
+            });
+            expect(
+              (
+                await getStoredInstagramPostMetrics(
+                  saved.id,
+                  'owner-user',
+                  { from: '2026-11-18', to: '2026-11-18' },
+                  injected,
+                )
+              ).metrics,
+            ).toHaveLength(1);
+            expect(
+              (
+                await getStoredInstagramPostMetrics(
+                  saved.id,
+                  'owner-user',
+                  { to: '2026-11-16' },
+                  injected,
+                )
+              ).metrics,
+            ).toEqual([]);
+            const legacyHistory = await getStoredInstagramPostMetrics(
+              'legacy-post',
+              'owner-user',
+              {},
+              injected,
+            );
+            expect(legacyHistory.metrics[0]).toMatchObject({
+              source: null,
+              likesCount: null,
+              viewsCount: 3000000000,
+            });
+            await expect(
+              getStoredInstagramPostMetrics(saved.id, 'unrelated-user', {}, injected),
+            ).rejects.toMatchObject({ statusCode: 403 });
+            await expect(
+              getStoredInstagramPostMetrics('missing-post', 'owner-user', {}, injected),
+            ).rejects.toMatchObject({ code: 'POST_NOT_FOUND' });
             const watched = await tx.instagramProfile.create({
               data: { instagramId: 'watched-ig', username: 'watched' },
             });
@@ -272,12 +360,34 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')('MVP migration on Post
             expect(
               await readStoredInstagramProfile(watched.id, 'owner-user', injected),
             ).toMatchObject({ id: watched.id, snapshots: [] });
+            const watchedPost = await tx.instagramPost.create({
+              data: {
+                instagramProfileId: watched.id,
+                instagramPostId: 'watched-post-ig',
+                type: 'reel',
+              },
+            });
+            await tx.instagramPostMetricSnapshot.create({
+              data: {
+                instagramPostId: watchedPost.id,
+                likesCount: 1,
+                viewsCount: 123n,
+                source: 'initial',
+              },
+            });
+            expect(
+              (await getStoredInstagramPostMetrics(watchedPost.id, 'owner-user', {}, injected))
+                .metrics[0],
+            ).toMatchObject({ source: 'initial', likesCount: 1, viewsCount: 123 });
             await tx.instagramCompetitor.update({
               where: { id: relation.id },
               data: { endedAt: tomorrow },
             });
             await expect(
               readStoredInstagramProfile(watched.id, 'owner-user', injected),
+            ).rejects.toMatchObject({ statusCode: 403 });
+            await expect(
+              getStoredInstagramPostMetrics(watchedPost.id, 'owner-user', {}, injected),
             ).rejects.toMatchObject({ statusCode: 403 });
             await expect(
               readStoredInstagramProfile('missing-profile', 'owner-user', injected),

@@ -1,4 +1,4 @@
-import { getPrismaClient } from '../../../provider/database/prisma.client.js';
+import { findProfilesForInstagramRefresh } from './instagram.refresh.repository.js';
 import { getInstagramProfile } from '../profile/instagram.profile.service.js';
 import { getInstagramRefreshWindowStart } from './instagram.refresh.schedule.js';
 import { ProviderError } from '../../../errors/provider.error.js';
@@ -7,10 +7,7 @@ export async function runInstagramRefresh(now = new Date(), clock = Date.now) {
   const windowStart = getInstagramRefreshWindowStart(now);
   if (!windowStart) return { skipped: true as const, reason: 'OUTSIDE_SCHEDULE' };
   const startedAt = clock();
-  const profiles = await getPrismaClient().instagramProfile.findMany({
-    orderBy: { id: 'asc' },
-    select: { instagramId: true, username: true },
-  });
+  const profiles = await findProfilesForInstagramRefresh(now);
   const result = {
     skipped: false as const,
     total: profiles.length,
