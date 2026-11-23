@@ -23,6 +23,8 @@ function relation(endedAt: Date | null = null) {
 }
 function makeStore() {
   return {
+    requireOwner: vi.fn().mockResolvedValue(undefined),
+    scheduleInitial: vi.fn().mockResolvedValue(undefined),
     profileInstagramId: vi.fn().mockResolvedValue('monitor-external'),
     saveIdentity: vi.fn().mockResolvedValue('competitor'),
     profileExists: vi.fn().mockResolvedValue(true),
@@ -101,19 +103,21 @@ describe('competitor relationship business rules', () => {
     expect(store.end).not.toHaveBeenCalled();
   });
   it('ends a relation without deleting its history', async () => {
-    await endInstagramCompetitor('profile', 'relation');
+    await endInstagramCompetitor('profile', 'relation', 'owner');
     expect(store.find).toHaveBeenCalledWith('profile', 'relation');
     expect(store.end).toHaveBeenCalledWith('relation', expect.any(Date));
   });
   it('preserves the original endedAt when ending twice', async () => {
     const ended = relation(new Date('2026-02-01'));
     store.find.mockResolvedValue(ended);
-    expect(await endInstagramCompetitor('profile', 'relation')).toBe(ended);
+    expect(await endInstagramCompetitor('profile', 'relation', 'owner')).toBe(ended);
     expect(store.end).not.toHaveBeenCalled();
   });
   it('cannot end a relation belonging to another monitoring profile', async () => {
     store.find.mockResolvedValue(null);
-    await expect(endInstagramCompetitor('profile', 'foreign-relation')).rejects.toMatchObject({
+    await expect(
+      endInstagramCompetitor('profile', 'foreign-relation', 'owner'),
+    ).rejects.toMatchObject({
       statusCode: 404,
       code: 'COMPETITOR_RELATION_NOT_FOUND',
     });
@@ -122,7 +126,7 @@ describe('competitor relationship business rules', () => {
   it.each(['active', 'ended', 'all'] as const)(
     'lists %s with bounded pagination',
     async (status) => {
-      const result = await listInstagramCompetitors('profile', status, 2, 25);
+      const result = await listInstagramCompetitors('profile', status, 2, 25, 'owner');
       expect(store.list).toHaveBeenCalledWith('profile', status, 25, 25);
       expect(result).toMatchObject({
         page: 2,
@@ -133,7 +137,9 @@ describe('competitor relationship business rules', () => {
   );
   it('returns a controlled 503 on DB failure', async () => {
     transaction.mockRejectedValue(new Error('SQL details'));
-    await expect(listInstagramCompetitors('profile', 'active', 1, 50)).rejects.toMatchObject({
+    await expect(
+      listInstagramCompetitors('profile', 'active', 1, 50, 'owner'),
+    ).rejects.toMatchObject({
       statusCode: 503,
       code: 'PERSISTENCE_FAILED',
     });

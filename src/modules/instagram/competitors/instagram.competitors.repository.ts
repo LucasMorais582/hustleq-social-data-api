@@ -1,10 +1,14 @@
 import { Prisma, type InstagramCompetitor, type PrismaClient } from '@prisma/client';
 import { getPrismaClient } from '../../../provider/database/prisma.client.js';
+import { ApiError } from '../../../errors/api.error.js';
+import { enqueueInstagramSyncJob } from '../jobs/instagram.sync-job.repository.js';
 
 import type { CompetitorIdentity } from './instagram.competitors.schemas.js';
 
 export type CompetitorStatus = 'active' | 'ended' | 'all';
 export interface CompetitorStore {
+  requireOwner(profileId: string, userId: string): Promise<void>;
+  scheduleInitial(profileId: string, providerRunId: string, userId: string): Promise<void>;
   profileExists(id: string): Promise<boolean>;
   profileInstagramId(id: string): Promise<string | null>;
   saveIdentity(profile: CompetitorIdentity): Promise<string>;
@@ -30,6 +34,50 @@ export async function withCompetitorTransaction<T>(
       return await client.$transaction(
         async (tx) =>
           work({
+            requireOwner: async (id, userId) => {
+              const profile = await tx.instagramProfile.findUnique({
+                where: { id },
+                select: { ownerUserId: true },
+              });
+              if (!profile) throw new ApiError(404, 'PROFILE_NOT_FOUND', 'Perfil não encontrado');
+              if (profile.ownerUserId !== userId)
+                throw new ApiError(
+                  403,
+                  'FORBIDDEN',
+                  'Somente o dono pode gerenciar contas acompanhadas',
+                );
+            },
+            scheduleInitial: async (profileId, providerRunId, userId) => {
+              const linked = await tx.providerRun.updateMany({
+                where: {
+                  id: providerRunId,
+                  actor: 'apify/instagram-profile-scraper',
+                  status: 'succeeded',
+                  apifyRunId: { not: null },
+                  OR: [{ instagramProfileId: null }, { instagramProfileId: profileId }],
+                },
+                data: { instagramProfileId: profileId },
+              });
+              if (linked.count !== 1) throw new Error('VERIFIED_PROFILE_RUN_NOT_FOUND');
+              await enqueueInstagramSyncJob(
+                {
+                  type: 'INITIAL_PROFILE_SYNC',
+                  trigger: 'initial',
+                  instagramProfileId: profileId,
+                  userId,
+                  activeKey: `profile:${profileId}`,
+                  payload: {
+                    providerSteps: { profile: [providerRunId] },
+                    providerAttempts: { [providerRunId]: 1 },
+                  },
+                },
+                tx,
+              );
+              await tx.instagramProfile.update({
+                where: { id: profileId },
+                data: { syncStatus: 'syncing' },
+              });
+            },
             profileExists: async (id) =>
               Boolean(
                 await tx.instagramProfile.findUnique({ where: { id }, select: { id: true } }),

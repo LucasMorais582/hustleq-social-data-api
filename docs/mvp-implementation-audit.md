@@ -32,10 +32,11 @@ Situacao atualizada em 23/11/2026: as oito tabelas (sete do guia e a fila
 InstagramSyncJob autorizada pelo usuario) estao modeladas e suas migrations
 foram aplicadas ao Supabase de desenvolvimento. As operacoes atomicas da fila
 e o executor Initial Profile Sync estao implementados. O worker inicia separado
-e desabilitado por padrao; o endpoint 2 esta conectado; faltam adaptar o 14 e os demais jobs. Ha persistencia,
+e desabilitado por padrao; os endpoints 2 e 14 estao conectados; faltam os demais
+jobs. Ha persistencia,
 normalizacao e guards JWT de usuario/servico. A busca 1 esta implementada;
 leituras 5-7 e 9 usam OWNER/COMPETITOR, e os fluxos internos 2-4/11 estao ligados.
-O inventario soma 9 endpoints implementados, 3 parciais e 4 pendentes. Cache,
+O inventario soma 12 endpoints implementados e 4 pendentes. Cache,
 custos completos e demais jobs ainda faltam. As secoes posteriores registram
 as etapas ja concluidas e os limites da validacao.
 
@@ -44,7 +45,7 @@ as etapas ja concluidas e os limites da validacao.
 | Funcionalidade                     | Situacao                                                     | O que falta                                                  |
 | ---------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------ |
 | Sete tabelas e migrations          | Prontas                                                      | Evolucoes quando necessarias nas proximas etapas             |
-| Fila interna da VPS                | Worker Initial conectado ao endpoint 2                       | Demais executores e integracao do endpoint 14                |
+| Fila interna da VPS                | Worker Initial conectado aos endpoints 2 e 14                | Demais executores e deploy do worker                         |
 | IDs string e legado                | Prontos                                                      | Alinhamento externo sobre CUID, que nao e UUID               |
 | JWT de usuario/servico             | Base pronta                                                  | Ligar os guards as demais rotas MVP                          |
 | Normalizacao e fixtures            | Base pronta                                                  | Enriquecimento real pelo Reel Scraper nos jobs               |
@@ -52,7 +53,7 @@ as etapas ja concluidas e os limites da validacao.
 | Previa de perfil                   | Endpoint 1 pronto, lookup compartilhado com convite          | Validar SLA/custo reais e migrar consumidor legado           |
 | Leituras de perfil/posts/historico | Endpoints 5-7 e 9 prontos                                    | Validar com o adaptador do backend principal                 |
 | Convites, reserva e dono           | Endpoints 2, 3 e 4 prontos                                   | Validacao externa com backend principal                      |
-| Concorrentes/Watched               | Parcial                                                      | Contrato MVP, autorizacao e Initial/Watched Sync             |
+| Concorrentes/Watched               | Endpoints 13–15 e Initial Sync prontos                       | Watched Sync diario e integracao externa                     |
 | Coleta diaria                      | Parcial                                                      | Prazo aplicado; faltam 12 posts/4h, elegibilidade MVP e jobs |
 | Post Refresh e teto de seguranca   | Pendentes                                                    | Endpoints 8/10, deduplicacao, fuso e quota                   |
 | Custos Apify                       | ProviderRun na busca GET, lookup do convite e worker Initial | Demais fluxos, reconciliacao geral, lotes e endpoint 12      |
@@ -65,28 +66,28 @@ Os caminhos do guia não incluem o prefixo. Hoje as rotas de negócio usam
 `/api/v1`; confirmar esse prefixo com o backend principal. As rotas legadas
 usam `{ response: ... }`; as novas leituras 5-7 retornam objetos diretos como no guia.
 
-| #   | Endpoint do guia                                                | Situação no código                                                                             | Trabalho pendente                                                                                                     |
-| --- | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| 1   | GET /instagram/profiles/search                                  | Pronto no codigo: previa sem cadastro/reserva, ownership e ProviderRun                         | Validar contrato/SLA/custo reais e migrar consumidor legado                                                           |
-| 2   | POST /internal/instagram/profiles                               | Pronto no codigo: reserva + lookup reaproveitado + Initial Sync                                | Validacao externa de contrato, SLA e cobranca                                                                         |
-| 3   | POST /internal/instagram/profiles/:profileId/owner              | Pronto nesta etapa                                                                             | Validacao externa com o backend principal                                                                             |
-| 4   | DELETE /internal/instagram/profiles/:profileId/reservation      | Pronto nesta etapa                                                                             | Validacao externa com o backend principal                                                                             |
-| 5   | GET /instagram/profiles/:profileId                              | Pronto nesta etapa                                                                             | Validacao externa; isVerified pode ser null por decisao do usuario                                                    |
-| 6   | GET /instagram/profiles/:profileId/posts                        | Pronto nesta etapa                                                                             | Validacao externa com o adaptador                                                                                     |
-| 7   | GET /instagram/profiles/:profileId/snapshots                    | Pronto nesta etapa                                                                             | Validacao externa com o adaptador                                                                                     |
-| 8   | GET /instagram/posts/:postId                                    | Ausente; POST /instagram/post/search coleta por username, não é equivalente                    | Frescor por lastCollectedAt, 200 ou 202, on_open assíncrono e deduplicação                                            |
-| 9   | GET /instagram/posts/:postId/metrics                            | Pronto nesta etapa                                                                             | Validacao externa com o adaptador                                                                                     |
-| 10  | POST /instagram/posts/:postId/refresh                           | Ausente                                                                                        | Post salvo, 202, execução durável, deduplicação, teto de segurança e falha sem substituir histórico                   |
-| 11  | PATCH /internal/instagram/profiles/:profileId/monitoring        | Pronto nesta etapa                                                                             | Filtro no cron atual pronto; aplicar tambem aos futuros jobs MVP                                                      |
-| 12  | GET /internal/costs                                             | Ausente                                                                                        | Agregações mensais de ProviderRun por usuário/trigger e custos não atribuídos                                         |
-| 13  | GET /instagram/profiles/:profileId/competitors                  | Parcial: lista relações ativas/encerradas com paginação                                        | Contrato exato do adaptador e escopo OWNER; não expor ownerUserId                                                     |
-| 14  | POST /instagram/profiles/:profileId/competitors                 | Parcial: exige confirmed:true e comprovante de prévia; salva identidade e relação atomicamente | Guia pede body username após busca no endpoint 1, código COMPETITOR_ALREADY_REGISTERED e Initial Sync                 |
-| 15  | DELETE /instagram/profiles/:profileId/competitors/:competitorId | Parcial: usa ID da relação, encerra endedAt, retorna 200 com objeto                            | Confirmar se competitorId é ID da relação ou do perfil acompanhado; retornar 204 e aplicar escopo                     |
-| 16  | GET /instagram/discover                                         | Ausente; trends/search tem o Actor reaproveitável                                              | Nicho/cidade/query, cache compartilhado 24h, contrato plano, fromCache, aquecimento com serviço e atribuição de custo |
+| #   | Endpoint do guia                                                | Situação no código                                                          | Trabalho pendente                                                                                                     |
+| --- | --------------------------------------------------------------- | --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| 1   | GET /instagram/profiles/search                                  | Pronto no codigo: previa sem cadastro/reserva, ownership e ProviderRun      | Validar contrato/SLA/custo reais e migrar consumidor legado                                                           |
+| 2   | POST /internal/instagram/profiles                               | Pronto no codigo: reserva + lookup reaproveitado + Initial Sync             | Validacao externa de contrato, SLA e cobranca                                                                         |
+| 3   | POST /internal/instagram/profiles/:profileId/owner              | Pronto nesta etapa                                                          | Validacao externa com o backend principal                                                                             |
+| 4   | DELETE /internal/instagram/profiles/:profileId/reservation      | Pronto nesta etapa                                                          | Validacao externa com o backend principal                                                                             |
+| 5   | GET /instagram/profiles/:profileId                              | Pronto nesta etapa                                                          | Validacao externa; isVerified pode ser null por decisao do usuario                                                    |
+| 6   | GET /instagram/profiles/:profileId/posts                        | Pronto nesta etapa                                                          | Validacao externa com o adaptador                                                                                     |
+| 7   | GET /instagram/profiles/:profileId/snapshots                    | Pronto nesta etapa                                                          | Validacao externa com o adaptador                                                                                     |
+| 8   | GET /instagram/posts/:postId                                    | Ausente; POST /instagram/post/search coleta por username, não é equivalente | Frescor por lastCollectedAt, 200 ou 202, on_open assíncrono e deduplicação                                            |
+| 9   | GET /instagram/posts/:postId/metrics                            | Pronto nesta etapa                                                          | Validacao externa com o adaptador                                                                                     |
+| 10  | POST /instagram/posts/:postId/refresh                           | Ausente                                                                     | Post salvo, 202, execução durável, deduplicação, teto de segurança e falha sem substituir histórico                   |
+| 11  | PATCH /internal/instagram/profiles/:profileId/monitoring        | Pronto nesta etapa                                                          | Filtro no cron atual pronto; aplicar tambem aos futuros jobs MVP                                                      |
+| 12  | GET /internal/costs                                             | Ausente                                                                     | Agregações mensais de ProviderRun por usuário/trigger e custos não atribuídos                                         |
+| 13  | GET /instagram/profiles/:profileId/competitors                  | Pronto: dono, listagem no envelope existente                                | Validacao externa com o adaptador                                                                                     |
+| 14  | POST /instagram/profiles/:profileId/competitors                 | Pronto: username, regras e Initial Sync atomico                             | Worker habilitado no deploy e validacao externa                                                                       |
+| 15  | DELETE /instagram/profiles/:profileId/competitors/:competitorId | Pronto: ID da relacao, dono, 204, historico preservado                      | Validacao externa; Watched diario ainda pendente                                                                      |
+| 16  | GET /instagram/discover                                         | Ausente; trends/search tem o Actor reaproveitável                           | Nicho/cidade/query, cache compartilhado 24h, contrato plano, fromCache, aquecimento com serviço e atribuição de custo |
 
-O guia afirma contrato de Watched sem mudanças, mas difere do fluxo de
-confirmação implementado e aprovado nesta conversa. Não substituir esse fluxo
-sem confirmar a compatibilidade desejada.
+O usuario aprovou na etapa M substituir o comprovante de confirmacao por body
+username, manter competitorId como ID da relacao e preservar o envelope da
+listagem. A previa de confirmacao passa pelo GET do endpoint 1.
 
 ## Autenticacao e erros - estado atual
 
@@ -798,3 +799,44 @@ Typecheck, lint, format:check e build passaram. Os cinco testes de banco seguem
 opt-in; nenhum Actor pago ou dado de public foi alterado. Nao houve migration
 ou deploy. Latencia/custo reais e validacao do adaptador continuam pendentes.
 Pausar para o commit do usuario.
+
+## Etapa M — contas acompanhadas (endpoints 13, 14 e 15)
+
+Decisoes confirmadas pelo usuario: inclusao com username apos previa GET,
+remocao pelo ID da relacao com 204 e listagem no formato existente
+`{ response: { relations, page, limit } }`. IDs internos continuam string CUID.
+
+As quatro rotas existentes de concorrentes agora verificam que o JWT pertence
+ao dono do perfil monitorador, incluindo a previa legada depreciada. A listagem
+nao expoe ownerUserId nem campos de reserva. A remocao nao apaga historico e
+repetir DELETE nao muda endedAt. Uma relacao encerrada deixa de conceder acesso
+COMPETITOR; outra relacao ativa do mesmo usuario ainda pode conceder esse acesso.
+
+O POST aceita apenas username. Faz lookup rastreado, com custo atribuido ao
+solicitante, e revalida o dono e as regras em transacao serializavel: sem
+autorreferencia, maximo de tres ativas, sem par ativo duplicado. O perfil alvo e
+reutilizado pelo instagramId, preservando dono e reserva. A identidade, a relacao,
+a vinculacao do ProviderRun e o enqueue Initial pertencem a mesma transacao.
+Falha em qualquer dessas gravacoes reverte todas; o ledger do lookup pago continua.
+
+O Initial reutiliza o lookup validado, sem segunda execucao de perfil pelo
+worker. Jobs ativos do mesmo perfil sao reutilizados sem substituir payload ou
+reiniciar tentativas; updatedAt pode ser atualizado pelo upsert. Adicionar de novo
+uma conta removida cria outra relacao e preserva as antigas. O body antigo com
+confirmed/confirmationToken devolve 400. A antiga rota POST competitors/search
+permanece depreciada, sem persistir identidade, e seu comprovante nao e aceito no
+novo POST. GET previa e POST inclusao fazem consultas independentes ao provider.
+
+O worker deve ser habilitado separadamente. A inclusao cria a tarefa, nao espera
+posts/snapshots. O Watched Sync diario permanece pendente; encerrar uma relacao
+nao altera o filtro do cron legado que ainda seleciona todos os perfis salvos.
+Nao houve migration, deploy nem chamada real a Actors nesta etapa.
+
+Validacao: 600 testes locais passaram (6 integracoes opt-in ficam fora de npm
+test). Teste PostgreSQL dedicado cobre HTTP real, persistencia, rollback, acesso,
+reutilizacao do Initial e limite concorrente em schema isolado: passou em cerca
+de 71 segundos, com remocao do schema temporario confirmada. Nenhum dado do
+schema public foi alterado e o transporte da Apify foi mockado. Typecheck, lint,
+format:check e build passaram. Estado: 12 endpoints implementados, nenhum
+parcial e 4 pendentes (8, 10, 12 e 16). Permanecem os jobs/deploy e a validacao
+externa do contrato e dos custos reais.

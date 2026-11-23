@@ -5,12 +5,11 @@ import {
   competitorParamsSchema,
   competitorRelationParamsSchema,
   competitorSearchSchema,
-  competitorConfirmationSchema,
   competitorListSchema,
 } from './instagram.competitors.schemas.js';
 import {
   previewInstagramCompetitor,
-  confirmInstagramCompetitor,
+  registerInstagramCompetitor,
   listInstagramCompetitors,
   endInstagramCompetitor,
 } from './instagram.competitors.service.js';
@@ -19,11 +18,20 @@ export async function instagramCompetitorRoutes(app: FastifyInstance) {
   const route = app.withTypeProvider<ZodTypeProvider>();
   const path = '/instagram/profiles/:instagramProfileId/competitors';
   const security = [{ bearerAuth: [] }];
+  app.addHook('onSend', async (_request, reply, payload) => {
+    reply.header('Cache-Control', 'private, no-store');
+    return payload;
+  });
   route.post(
     `${path}/search`,
     {
       onRequest: authenticate,
-      schema: { security, params: competitorParamsSchema, body: competitorSearchSchema },
+      schema: {
+        security,
+        params: competitorParamsSchema,
+        body: competitorSearchSchema,
+        deprecated: true,
+      },
     },
     async (request) => ({
       response: await previewInstagramCompetitor(
@@ -37,13 +45,13 @@ export async function instagramCompetitorRoutes(app: FastifyInstance) {
     path,
     {
       onRequest: authenticate,
-      schema: { security, params: competitorParamsSchema, body: competitorConfirmationSchema },
+      schema: { security, params: competitorParamsSchema, body: competitorSearchSchema },
     },
     async (request, reply) =>
       reply.code(201).send({
-        response: await confirmInstagramCompetitor(
+        response: await registerInstagramCompetitor(
           request.params.instagramProfileId,
-          request.body.confirmationToken,
+          request.body.username,
           authenticatedUserId(request),
         ),
       }),
@@ -60,6 +68,7 @@ export async function instagramCompetitorRoutes(app: FastifyInstance) {
         request.query.status,
         request.query.page,
         request.query.limit,
+        authenticatedUserId(request),
       ),
     }),
   );
@@ -69,11 +78,13 @@ export async function instagramCompetitorRoutes(app: FastifyInstance) {
       onRequest: authenticate,
       schema: { security, params: competitorRelationParamsSchema },
     },
-    async (request) => ({
-      response: await endInstagramCompetitor(
+    async (request, reply) => {
+      await endInstagramCompetitor(
         request.params.instagramProfileId,
         request.params.relationId,
-      ),
-    }),
+        authenticatedUserId(request),
+      );
+      return reply.code(204).send();
+    },
   );
 }

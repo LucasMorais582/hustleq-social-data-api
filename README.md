@@ -165,60 +165,52 @@ Detalhes de horários, limites do Vercel e da versão simples estão em
 Ela atualiza métricas coletadas dos dez posts mais recentes e conserva os snapshots
 anteriores. Não cria User, não grava trends nem adiciona tabela de controle.
 
-### Concorrentes: busca e confirmação
+### Contas acompanhadas (concorrentes)
 
-Todas as rotas abaixo exigem o JWT de acesso em `Authorization: Bearer <token>`.
-`{profileId}` é o **ID interno** de um `InstagramProfile` já salvo (coluna `id`
-no Supabase), não o `instagramId` nem o username. A relação continua sendo
-InstagramProfile → InstagramProfile; não há criação de User nesta etapa.
+Todas as rotas usam JWT de usuário e exigem que `sub` seja o dono do perfil
+monitorador. `{profileId}` é o ID interno string do InstagramProfile, não seu
+instagramId. Não é necessário criar uma tabela User.
 
-1. `POST /api/v1/instagram/profiles/{profileId}/competitors/search`
+1. Confira a conta com `GET /api/v1/instagram/profiles/search?username=nome`.
+   A prévia não cadastra a conta nem cria uma relação. A confirmação visual é
+   responsabilidade do cliente.
+2. Depois da confirmação, use
+   `POST /api/v1/instagram/profiles/{profileId}/competitors` com:
 
    ```json
    { "username": "nome_do_concorrente" }
    ```
 
-   Aceita `@` inicial. Consulta a Apify e devolve `response.profile` com
-   `instagramId`, `username`, `name`, `bio`, `profilePhoto`, `url`, `category`
-   e `isVerified`, além de `response.confirmationToken` e `response.expiresAt`.
-   Campos indisponíveis podem ser null. A foto usa a URL da Apify, sem upload.
-   A busca **não salva** o concorrente, posts, snapshots ou relação. Cada busca
-   consome uma consulta ao provider. Perfil inexistente ou privado devolve 404
-   com `PROFILE_NOT_FOUND` ou `PROFILE_PRIVATE`; falhas/limites do provider
-   preservam os erros 503/429 existentes.
-
-2. Depois da conferência, `POST /api/v1/instagram/profiles/{profileId}/competitors`
-
-   ```json
-   { "confirmed": true, "confirmationToken": "copie_o_token_da_busca" }
-   ```
-
-   Retorna 201 com `response` contendo a relação criada. O comprovante vale por
-   dez minutos e é vinculado ao perfil monitorador e ao `sub` do JWT de acesso.
-   Não é um token de autenticação. A confirmação não consulta novamente a Apify:
-   salva a identidade apresentada na busca, reutilizando o perfil pelo
-   `instagramId`, e cria a relação na mesma transação. Não atribui proprietário.
-   Não salva posts nem métricas nesta operação; a coleta normal e a rotina diária
-   continuam responsáveis por esses dados. Para cancelar, basta não confirmar;
-   `confirmed: false` ou ausente é rejeitado com 400.
+   Retorna 201 com `{ response: <relação criada> }`. Revalida a identidade na
+   Apify, cadastra/reutiliza o perfil pelo instagramId e grava a relação e uma
+   tarefa Initial Profile Sync na mesma transação. O lookup validado é
+   reutilizado pelo worker; uma tarefa já ativa para o mesmo perfil é preservada.
+   A API não transfere o dono nem altera reservas do perfil acompanhado.
+   O worker separado deve estar habilitado para coletar posts e métricas.
+   A prévia GET e a inclusão POST são duas consultas independentes à Apify.
+   O body antigo com confirmed/confirmationToken passa a devolver 400.
 
 3. `GET /api/v1/instagram/profiles/{profileId}/competitors?status=active&page=1&limit=50`
-   lista as relações e a identidade atual do concorrente. `status` aceita
-   `active` (padrão), `ended` e `all`; `limit` vai de 1 a 100.
-
+   mantém `{ response: { relations, page, limit } }`. Cada relação inclui seu
+   `id` e `competitorProfileId` (ID interno para ler perfil/posts/histórico).
+   `status`: active (padrão), ended ou all; limit: 1 a 100.
+   Não expõe ownerUserId ou reservas.
 4. `DELETE /api/v1/instagram/profiles/{profileId}/competitors/{relationId}`
-   encerra a relação preenchendo `endedAt`, sem apagar histórico ou perfil.
-   Repetir a remoção preserva o encerramento original. Reconfirmar uma busca
-   depois do encerramento cria outra relação.
+   responde **204 sem corpo**. Preenche endedAt e preserva perfil e histórico.
+   Repetir a remoção não muda endedAt. Adicionar novamente cria outra relação.
+   A relação encerrada deixa de autorizar leituras pelo escopo COMPETITOR.
 
-Erros de negócio: 400 `INVALID_REQUEST` (autorreferência ou confirmação inválida); 409 `COMPETITOR_ALREADY_REGISTERED` ou
-`COMPETITOR_LIMIT_REACHED` (máximo de três ativos); 404
-`COMPETITOR_NOT_FOUND` para relação ausente ou de outro perfil.
-A confirmação revalida as regras dentro de uma transação serializável, inclusive
-se houver outras confirmações depois da busca. Falhas revertem toda a operação.
+Autorreferência: 400 INVALID_REQUEST; três contas ativas: 409
+COMPETITOR_LIMIT_REACHED; relação já ativa: 409 COMPETITOR_ALREADY_REGISTERED;
+perfil monitorador inexistente: 404 PROFILE_NOT_FOUND; relação ausente ou de outro
+perfil: 404 COMPETITOR_NOT_FOUND; outro usuário: 403 FORBIDDEN. As regras são
+revalidadas em transação serializável depois do lookup. Falha ao agendar reverte
+a identidade/relação, preservando o registro do custo da consulta.
 
-Como User e sua integração com a HustleQ ainda estão em definição, estas rotas
-validam o JWT, mas ainda não verificam propriedade do perfil por usuário.
+A antiga `POST .../competitors/search` permanece depreciada e protegida pelo
+mesmo acesso de dono. Seu comprovante não é mais aceito na inclusão; use a prévia
+GET do contrato MVP. O Watched Sync diário ainda será implementado; o cron legado
+continua selecionando perfis salvos e não deve ser confundido com esse job MVP.
 
 ## Adaptação MVP — etapa de autenticação e erros
 

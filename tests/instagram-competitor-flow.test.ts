@@ -1,252 +1,264 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-const { transaction, fetchProfile, saveProfile } = vi.hoisted(() => ({
+const { transaction, lookup, fetchProfile } = vi.hoisted(() => ({
   transaction: vi.fn(),
+  lookup: vi.fn(),
   fetchProfile: vi.fn(),
-  saveProfile: vi.fn(),
 }));
 vi.mock('../src/modules/instagram/competitors/instagram.competitors.repository.js', () => ({
   withCompetitorTransaction: transaction,
 }));
-vi.mock('../src/provider/apify/apify.provider.js', () => ({ fetchInstagramProfile: fetchProfile }));
-vi.mock('../src/modules/instagram/profile/instagram.profile.repository.js', () => ({
-  saveProfileCollection: saveProfile,
+vi.mock('../src/modules/instagram/profile/instagram.profile.lookup.service.js', () => ({
+  lookupTrackedInstagramProfile: lookup,
 }));
+vi.mock('../src/provider/apify/apify.provider.js', () => ({ fetchInstagramProfile: fetchProfile }));
 import { buildApp } from '../src/app.js';
 import { authHeaders } from './helpers/auth.js';
-import { createCompetitorConfirmation } from '../src/modules/instagram/competitors/instagram.competitors.confirmation.js';
 import type { CompetitorStore } from '../src/modules/instagram/competitors/instagram.competitors.repository.js';
+import { ApiError } from '../src/errors/api.error.js';
+import { ProfileLookupError } from '../src/modules/instagram/profile/instagram.profile.errors.js';
 import { ProviderError } from '../src/errors/provider.error.js';
+import { ProviderStartUncertain } from '../src/provider/apify/apify.tracked-run.js';
 
 const path = '/api/v1/instagram/profiles/source/competitors';
+const profile = {
+  id: 'external',
+  username: 'other',
+  fullName: 'Other',
+  biography: 'Bio',
+  profilePicUrlHD: 'https://example.com/photo.jpg',
+  verified: false,
+  latestPosts: [],
+};
 const identity = {
   instagramId: 'external',
   username: 'other',
   name: 'Other',
   bio: 'Bio',
-  profilePhoto: 'https://example.com/photo.jpg',
+  profilePhoto: profile.profilePicUrlHD,
   url: null,
   category: null,
   isVerified: false,
 };
-let app: ReturnType<typeof buildApp>;
-let store: {
-  [
-    K in
-      | 'profileExists'
-      | 'profileInstagramId'
-      | 'saveIdentity'
-      | 'activeExists'
-      | 'countActive'
-      | 'create'
-      | 'list'
-      | 'find'
-  ]: ReturnType<typeof vi.fn>;
-};
-beforeEach(() => {
-  vi.resetAllMocks();
-  app = buildApp();
-  store = {
+function makeStore() {
+  return {
+    requireOwner: vi.fn().mockResolvedValue(undefined),
+    scheduleInitial: vi.fn().mockResolvedValue(undefined),
     profileExists: vi.fn().mockResolvedValue(true),
     profileInstagramId: vi.fn().mockResolvedValue('source-external'),
     saveIdentity: vi.fn().mockResolvedValue('destination'),
     activeExists: vi.fn().mockResolvedValue(false),
     countActive: vi.fn().mockResolvedValue(0),
-    create: vi.fn().mockResolvedValue({ id: 'relation', endedAt: null }),
+    create: vi
+      .fn()
+      .mockResolvedValue({ id: 'relation', competitorProfileId: 'destination', endedAt: null }),
     list: vi.fn().mockResolvedValue([]),
-    find: vi.fn().mockResolvedValue(null),
+    find: vi.fn().mockResolvedValue({ id: 'relation', endedAt: null }),
+    end: vi.fn().mockResolvedValue({ id: 'relation', endedAt: new Date() }),
   };
+}
+let app: ReturnType<typeof buildApp>;
+let store: ReturnType<typeof makeStore>;
+beforeEach(() => {
+  vi.resetAllMocks();
+  app = buildApp();
+  store = makeStore();
   transaction.mockImplementation((work: (store: CompetitorStore) => Promise<unknown>) =>
-    work(store as unknown as CompetitorStore),
+    work(store),
   );
-  fetchProfile.mockResolvedValue({
-    id: 'external',
-    username: 'other',
-    fullName: 'Other',
-    biography: 'Bio',
-    profilePicUrlHD: identity.profilePhoto,
-    verified: false,
-    latestPosts: [],
-  });
+  lookup.mockResolvedValue({ profile, providerRunId: 'verified-run' });
+  fetchProfile.mockResolvedValue(profile);
 });
 afterEach(async () => {
-  vi.useRealTimers();
-  vi.restoreAllMocks();
   await app.close();
 });
-const preview = () =>
-  app.inject({
-    method: 'POST',
-    url: `${path}/search`,
-    headers: authHeaders(),
-    payload: { username: '@other' },
-  });
-const confirm = (confirmationToken: string, confirmed: boolean = true) =>
-  app.inject({
-    method: 'POST',
-    url: path,
-    headers: authHeaders(),
-    payload: { confirmed, confirmationToken },
-  });
+const add = (payload: unknown = { username: '@OTHER' }) =>
+  app.inject({ method: 'POST', url: path, headers: authHeaders(), payload: payload as object });
 
-describe('competitor preview and explicit confirmation', () => {
-  it('previews without saving, then confirms without a second paid lookup', async () => {
-    const first = await preview();
-    expect(first.statusCode).toBe(200);
-    expect(first.json().response.profile).toEqual(identity);
-    expect(fetchProfile).toHaveBeenCalledWith('other');
-    expect(store.saveIdentity).not.toHaveBeenCalled();
-    expect(store.create).not.toHaveBeenCalled();
-    expect(saveProfile).not.toHaveBeenCalled();
-    const second = await confirm(first.json().response.confirmationToken);
-    expect(second.statusCode).toBe(201);
+describe('MVP watched accounts endpoints 13–15', () => {
+  it('accepts username and atomically requests Initial Sync with the verified lookup', async () => {
+    const response = await add();
+    expect(response.statusCode).toBe(201);
+    expect(response.json().response).toMatchObject({
+      id: 'relation',
+      competitorProfileId: 'destination',
+    });
+    expect(lookup).toHaveBeenCalledWith('other', { trigger: 'initial', userId: 'test-client' });
     expect(store.saveIdentity).toHaveBeenCalledWith(identity);
     expect(store.create).toHaveBeenCalledWith('source', 'destination');
-    expect(fetchProfile).toHaveBeenCalledTimes(1);
-  });
-  it.each([false, undefined])('does not accept confirmed=%s', async (confirmed) => {
-    const response = await app.inject({
-      method: 'POST',
-      url: path,
-      headers: authHeaders(),
-      payload: { confirmed, confirmationToken: 'anything' },
-    });
-    expect(response.statusCode).toBe(400);
-    expect(transaction).not.toHaveBeenCalled();
-  });
-  it('rejects tampered confirmation', async () => {
-    const token = (await preview()).json().response.confirmationToken;
-    const result = await confirm(`x${token}`);
-    expect(result.statusCode).toBe(400);
-    expect(result.json().error.code).toBe('INVALID_REQUEST');
-    expect(store.saveIdentity).not.toHaveBeenCalled();
-  });
-  it.each(['different-profile', 'different-subject'])('binds confirmation to %s', async (mode) => {
-    const token = createCompetitorConfirmation(
-      mode === 'different-profile' ? 'another' : 'source',
-      mode === 'different-subject' ? 'another' : 'test-client',
-      identity,
-    ).confirmationToken;
-    expect((await confirm(token)).statusCode).toBe(400);
-    expect(transaction).not.toHaveBeenCalled();
-  });
-  it('rejects expired confirmation', async () => {
-    const token = createCompetitorConfirmation('source', 'test-client', identity).confirmationToken;
-    vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 600001);
-    expect((await confirm(token)).statusCode).toBe(400);
-    vi.restoreAllMocks();
-  });
-  it('does not accept the preview token as Bearer authentication', async () => {
-    const token = (await preview()).json().response.confirmationToken;
-    const response = await app.inject({
-      method: 'GET',
-      url: path,
-      headers: { authorization: `Bearer ${token}` },
-    });
-    expect(response.statusCode).toBe(401);
+    expect(store.scheduleInitial).toHaveBeenCalledWith(
+      'destination',
+      'verified-run',
+      'test-client',
+    );
+    expect(store.requireOwner).toHaveBeenCalledTimes(2);
   });
   it.each([
-    ['POST', '/search'],
+    { confirmed: true, confirmationToken: 'old' },
+    { username: 'other', profile: { instagramId: 'forged' } },
+    {},
+    { username: '' },
+    { username: 'wrong/name' },
+  ])('rejects invalid/old body %j', async (payload) => {
+    expect((await add(payload)).statusCode).toBe(400);
+    expect(lookup).not.toHaveBeenCalled();
+  });
+  it.each([
     ['POST', ''],
     ['GET', ''],
     ['DELETE', '/relation'],
+    ['POST', '/search'],
   ] as const)('authenticates %s %s', async (method, suffix) => {
-    const response = await app.inject({ method, url: `${path}${suffix}` });
-    expect(response.statusCode).toBe(401);
+    expect((await app.inject({ method, url: path + suffix })).statusCode).toBe(401);
     expect(transaction).not.toHaveBeenCalled();
   });
-  it.each([null, { error: 'not_found' }, { private: true }])(
-    'handles unavailable Instagram profile %j',
-    async (item) => {
-      fetchProfile.mockResolvedValue(item);
-      const response = await preview();
-      expect(response.statusCode).toBe(404);
-      expect(response.json().error.code).toBe(
-        item?.private ? 'PROFILE_PRIVATE' : 'PROFILE_NOT_FOUND',
-      );
-      expect(store.saveIdentity).not.toHaveBeenCalled();
-    },
-  );
-  it('rejects self-reference on preview and confirmation', async () => {
-    store.profileInstagramId.mockResolvedValue('external');
-    expect((await preview()).json().error.code).toBe('INVALID_REQUEST');
-    const token = createCompetitorConfirmation('source', 'test-client', identity).confirmationToken;
-    expect((await confirm(token)).json().error.code).toBe('INVALID_REQUEST');
+  it.each([
+    ['POST', ''],
+    ['GET', ''],
+    ['DELETE', '/relation'],
+    ['POST', '/search'],
+  ] as const)('restricts %s %s to the source owner', async (method, suffix) => {
+    store.requireOwner.mockRejectedValue(new ApiError(403, 'FORBIDDEN', 'Sem acesso'));
+    const response = await app.inject({
+      method,
+      url: path + suffix,
+      headers: authHeaders(),
+      ...(method === 'POST' ? { payload: { username: 'other' } } : {}),
+    });
+    expect(response.statusCode).toBe(403);
+    expect(lookup).not.toHaveBeenCalled();
+    expect(fetchProfile).not.toHaveBeenCalled();
+    expect(store.list).not.toHaveBeenCalled();
+    expect(store.end).not.toHaveBeenCalled();
+  });
+  it('rejects service tokens', async () => {
+    expect(
+      (
+        await app.inject({
+          url: path,
+          headers: authHeaders({ sub: 'hustleq-main', scope: 'service' }),
+        })
+      ).statusCode,
+    ).toBe(403);
+  });
+  it('rejects a missing source before a paid lookup', async () => {
+    store.requireOwner.mockRejectedValue(new ApiError(404, 'PROFILE_NOT_FOUND', 'Não encontrado'));
+    expect((await add()).statusCode).toBe(404);
+    expect(lookup).not.toHaveBeenCalled();
+  });
+  it('rechecks ownership after the external lookup', async () => {
+    store.requireOwner
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new ApiError(403, 'FORBIDDEN', 'Sem acesso'));
+    expect((await add()).statusCode).toBe(403);
     expect(store.saveIdentity).not.toHaveBeenCalled();
   });
-  it('requires a saved monitoring profile before spending on lookup', async () => {
-    store.profileExists.mockResolvedValue(false);
-    expect((await preview()).statusCode).toBe(404);
-    expect(fetchProfile).not.toHaveBeenCalled();
+  it('rejects self-reference by immutable Instagram identity', async () => {
+    store.profileInstagramId.mockResolvedValue('external');
+    expect((await add()).json().error.code).toBe('INVALID_REQUEST');
+    expect(store.saveIdentity).not.toHaveBeenCalled();
   });
-  it('propagates provider rate limits', async () => {
-    fetchProfile.mockRejectedValue(new ProviderError(429, 'PROVIDER_RATE_LIMITED', 'Please wait'));
-    const response = await preview();
-    expect(response.statusCode).toBe(429);
-    expect(response.json().error.message).toBe('Please wait');
+  it('rejects duplicate active relations', async () => {
+    store.activeExists.mockResolvedValue(true);
+    const response = await add();
+    expect(response.statusCode).toBe(409);
+    expect(response.json().error.code).toBe('COMPETITOR_ALREADY_REGISTERED');
+    expect(store.scheduleInitial).not.toHaveBeenCalled();
+  });
+  it('rejects the active cap before spending on lookup', async () => {
+    store.countActive.mockResolvedValue(3);
+    expect((await add()).json().error.code).toBe('COMPETITOR_LIMIT_REACHED');
+    expect(lookup).not.toHaveBeenCalled();
+  });
+  it('rechecks the cap after lookup when another request took the last slot', async () => {
+    store.countActive.mockResolvedValueOnce(2).mockResolvedValueOnce(3);
+    expect((await add()).statusCode).toBe(409);
+    expect(store.create).not.toHaveBeenCalled();
+  });
+  it('allows the third relation and re-adding an ended relation', async () => {
+    store.countActive.mockResolvedValue(2);
+    expect((await add()).statusCode).toBe(201);
+    expect(store.end).not.toHaveBeenCalled();
+  });
+  it.each([
+    new ProviderError(429, 'PROVIDER_RATE_LIMITED', 'Please wait'),
+    new ProviderError(503, 'PROVIDER_INVALID_RESPONSE', 'Invalid data'),
+  ])('propagates provider errors', async (error) => {
+    lookup.mockRejectedValue(error);
+    const response = await add();
+    expect(response.statusCode).toBe(error.statusCode);
+    expect(response.json().error.message).toBe(error.message);
+    expect(store.create).not.toHaveBeenCalled();
+  });
+  it('does not turn uncertain starts into empty success', async () => {
+    lookup.mockRejectedValue(new ProviderStartUncertain());
+    expect((await add()).statusCode).toBe(503);
+    expect(store.create).not.toHaveBeenCalled();
+  });
+  it.each(['PROFILE_NOT_FOUND', 'PROFILE_PRIVATE'] as const)('preserves %s', async (code) => {
+    lookup.mockRejectedValue(new ProfileLookupError(code));
+    expect((await add()).statusCode).toBe(404);
+    expect(store.create).not.toHaveBeenCalled();
+  });
+  it('hides database details if queueing fails', async () => {
+    store.scheduleInitial.mockRejectedValue(new Error('sensitive SQL'));
+    const response = await add();
+    expect(response.statusCode).toBe(500);
+    expect(response.body).not.toContain('sensitive');
+  });
+  it('preserves the list envelope and pagination', async () => {
+    const response = await app.inject({
+      url: path + '?status=ended&page=2&limit=25',
+      headers: authHeaders(),
+    });
+    expect(response.json()).toEqual({ response: { relations: [], page: 2, limit: 25 } });
+    expect(store.list).toHaveBeenCalledWith('source', 'ended', 25, 25);
   });
   it.each(['?limit=101', '?page=0', '?status=unknown'])(
     'rejects list parameters %s',
     async (query) => {
-      expect(
-        (await app.inject({ method: 'GET', url: path + query, headers: authHeaders() })).statusCode,
-      ).toBe(400);
+      expect((await app.inject({ url: path + query, headers: authHeaders() })).statusCode).toBe(
+        400,
+      );
     },
   );
-  it('lists and scopes removal to the monitoring profile', async () => {
-    expect(
-      (await app.inject({ method: 'GET', url: path, headers: authHeaders() })).statusCode,
-    ).toBe(200);
-    expect(store.list).toHaveBeenCalledWith('source', 'active', 0, 50);
+  it('returns empty 204 and removes by relation ID', async () => {
     const response = await app.inject({
       method: 'DELETE',
-      url: `${path}/foreign`,
+      url: path + '/relation',
+      headers: authHeaders(),
+    });
+    expect(response.statusCode).toBe(204);
+    expect(response.body).toBe('');
+    expect(store.find).toHaveBeenCalledWith('source', 'relation');
+    expect(store.end).toHaveBeenCalledTimes(1);
+  });
+  it('does not change endedAt on repeated deletion', async () => {
+    store.find.mockResolvedValue({ id: 'relation', endedAt: new Date('2026-01-01') });
+    expect(
+      (await app.inject({ method: 'DELETE', url: path + '/relation', headers: authHeaders() }))
+        .statusCode,
+    ).toBe(204);
+    expect(store.end).not.toHaveBeenCalled();
+  });
+  it('returns 404 for a relation outside the source profile', async () => {
+    store.find.mockResolvedValue(null);
+    const response = await app.inject({
+      method: 'DELETE',
+      url: path + '/foreign',
       headers: authHeaders(),
     });
     expect(response.statusCode).toBe(404);
-    expect(store.find).toHaveBeenCalledWith('source', 'foreign');
+    expect(response.json().error.code).toBe('COMPETITOR_NOT_FOUND');
   });
-  it.each(['duplicate', 'limit'])('rechecks %s on confirmation after preview', async (mode) => {
-    const token = (await preview()).json().response.confirmationToken;
-    if (mode === 'duplicate') store.activeExists.mockResolvedValue(true);
-    else store.countActive.mockResolvedValue(3);
-    const response = await confirm(token);
-    expect(response.statusCode).toBe(409);
-    expect(response.json().error.code).toBe(
-      mode === 'duplicate' ? 'COMPETITOR_ALREADY_REGISTERED' : 'COMPETITOR_LIMIT_REACHED',
-    );
-    expect(store.create).not.toHaveBeenCalled();
-  });
-  it('returns 503 and hides database details when confirmation fails', async () => {
-    const token = (await preview()).json().response.confirmationToken;
-    store.saveIdentity.mockRejectedValue(new Error('password-sensitive SQL details'));
-    const response = await confirm(token);
-    expect(response.statusCode).toBe(500);
-    expect(response.json().error.code).toBe('INTERNAL_ERROR');
-    expect(response.body).not.toContain('password-sensitive');
-    expect(store.create).not.toHaveBeenCalled();
-  });
-  it.each(['', 'wrong/name', 'https://instagram.com/other'])(
-    'rejects invalid username %s',
-    async (username) => {
-      const response = await app.inject({
-        method: 'POST',
-        url: path + '/search',
-        headers: authHeaders(),
-        payload: { username },
-      });
-      expect(response.statusCode).toBe(400);
-      expect(fetchProfile).not.toHaveBeenCalled();
-    },
-  );
-  it('does not allow client-supplied profile data on confirmation', async () => {
-    const token = createCompetitorConfirmation('source', 'test-client', identity).confirmationToken;
+  it('retains the deprecated preview without persisting identity', async () => {
     const response = await app.inject({
       method: 'POST',
-      url: path,
+      url: path + '/search',
       headers: authHeaders(),
-      payload: { confirmed: true, confirmationToken: token, profile: { instagramId: 'forged' } },
+      payload: { username: 'other' },
     });
-    expect(response.statusCode).toBe(400);
+    expect(response.statusCode).toBe(200);
     expect(store.saveIdentity).not.toHaveBeenCalled();
+    expect(store.scheduleInitial).not.toHaveBeenCalled();
   });
 });

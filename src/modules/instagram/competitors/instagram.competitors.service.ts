@@ -1,4 +1,8 @@
 import { normalizeProfileName } from '../shared/instagram.normalize.js';
+import { ApiError } from '../../../errors/api.error.js';
+import { providerFailure } from '../../../errors/provider.error.js';
+import { ProviderStartUncertain } from '../../../provider/apify/apify.tracked-run.js';
+import { lookupTrackedInstagramProfile } from '../profile/instagram.profile.lookup.service.js';
 import { lookupInstagramProfile } from '../profile/instagram.profile.service.js';
 import {
   createCompetitorConfirmation,
@@ -16,7 +20,7 @@ async function execute<T>(work: (store: CompetitorStore) => Promise<T>): Promise
   try {
     return await withCompetitorTransaction(work);
   } catch (error) {
-    if (error instanceof CompetitorError) throw error;
+    if (error instanceof CompetitorError || error instanceof ApiError) throw error;
     throw new PersistenceError();
   }
 }
@@ -75,17 +79,22 @@ export async function listInstagramCompetitors(
   status: CompetitorStatus,
   page: number,
   limit: number,
+  subject: string,
 ) {
   return execute(async (store) => {
-    await requireProfile(store, profileId);
+    await store.requireOwner(profileId, subject);
     const relations = await store.list(profileId, status, (page - 1) * limit, limit);
     return { relations, page, limit };
   });
 }
 
-export async function endInstagramCompetitor(profileId: string, relationId: string) {
+export async function endInstagramCompetitor(
+  profileId: string,
+  relationId: string,
+  subject: string,
+) {
   return execute(async (store) => {
-    await requireProfile(store, profileId);
+    await store.requireOwner(profileId, subject);
     const relation = await store.find(profileId, relationId);
     if (!relation) {
       throw new CompetitorError(
@@ -105,7 +114,7 @@ export async function previewInstagramCompetitor(
   subject: string,
 ) {
   const instagramId = await execute(async (store) => {
-    await requireProfile(store, profileId);
+    await store.requireOwner(profileId, subject);
     return store.profileInstagramId(profileId);
   });
   const item = await lookupInstagramProfile({ username });
@@ -136,7 +145,7 @@ export async function confirmInstagramCompetitor(
 ) {
   const profile = readCompetitorConfirmation(token, profileId, subject);
   return execute(async (store) => {
-    await requireProfile(store, profileId);
+    await store.requireOwner(profileId, subject);
     if ((await store.profileInstagramId(profileId)) === profile.instagramId) {
       throw new CompetitorError(
         400,
@@ -148,5 +157,57 @@ export async function confirmInstagramCompetitor(
     // Todas as regras e a gravação do perfil pertencem à mesma transação.
     await validateActiveCompetitor(store, profileId, competitorId);
     return store.create(profileId, competitorId);
+  });
+}
+
+// A confirmação visual acontece no cliente, usando GET /profiles/search.
+// A identidade e as regras são verificadas novamente ao criar a relação.
+export async function registerInstagramCompetitor(
+  profileId: string,
+  username: string,
+  subject: string,
+) {
+  await execute(async (store) => {
+    await store.requireOwner(profileId, subject);
+    if ((await store.countActive(profileId)) >= 3)
+      throw new CompetitorError(
+        409,
+        'COMPETITOR_LIMIT_REACHED',
+        'O perfil já possui três concorrentes ativos',
+      );
+  });
+  let lookup: Awaited<ReturnType<typeof lookupTrackedInstagramProfile>>;
+  try {
+    lookup = await lookupTrackedInstagramProfile(username, { trigger: 'initial', userId: subject });
+  } catch (error) {
+    if (error instanceof ProviderStartUncertain)
+      throw providerFailure(
+        'Não foi possível confirmar o início da consulta à Apify. A relação não foi criada.',
+      );
+    throw error;
+  }
+  const { profile, providerRunId } = lookup;
+  return execute(async (store) => {
+    await store.requireOwner(profileId, subject);
+    if ((await store.profileInstagramId(profileId)) === profile.id)
+      throw new CompetitorError(
+        400,
+        'COMPETITOR_SELF_REFERENCE',
+        'Um perfil não pode monitorar a si mesmo',
+      );
+    const competitorId = await store.saveIdentity({
+      instagramId: profile.id,
+      username: profile.username,
+      name: normalizeProfileName(profile.fullName),
+      bio: profile.biography ?? null,
+      profilePhoto: profile.profilePicUrlHD ?? profile.profilePicUrl ?? null,
+      url: profile.url ?? null,
+      category: profile.businessCategoryName ?? null,
+      isVerified: profile.verified ?? null,
+    });
+    await validateActiveCompetitor(store, profileId, competitorId);
+    const relation = await store.create(profileId, competitorId);
+    await store.scheduleInitial(competitorId, providerRunId, subject);
+    return relation;
   });
 }
