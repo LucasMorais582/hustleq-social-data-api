@@ -496,3 +496,75 @@ no historico e liberam sua chave ativa para uma nova coleta.
 O processo do worker, integracao com Actors/custos e recuperacao apos uma queda
 ainda estao pendentes. Nenhuma rota comeca a coletar em segundo plano apenas por
 existirem a tabela e essas operacoes. O cron legado continua como antes.
+
+## Worker Initial Profile Sync — processo separado
+
+O primeiro executor da fila suporta `INITIAL_PROFILE_SYNC`. O cron legado e
+as rotas antigas continuam com seu comportamento atual; este worker nao
+transforma todos os perfis salvos em novas tarefas. Os endpoints 2 (convite) e
+14 (novo contrato de conta acompanhada) ainda precisam enfileirar esses jobs.
+
+Configuracao (desabilitado por padrao):
+
+```dotenv
+INSTAGRAM_WORKER_ENABLED=false
+INSTAGRAM_WORKER_POLL_MS=5000
+```
+
+Depois de configurar banco/Apify e decidir iniciar o consumo das tarefas,
+defina `INSTAGRAM_WORKER_ENABLED=true` no ambiente do processo do worker.
+Executar um job real consome os creditos dos Actors correspondentes.
+
+Desenvolvimento, em terminal separado da API:
+
+```bash
+npm run dev:worker
+```
+
+Na VPS, depois do build, API e worker sao processos distintos:
+
+```bash
+npm start
+```
+
+```bash
+npm run start:worker
+```
+
+Nenhuma VPS foi acessada ou configurada nesta etapa. O processo trata SIGINT e
+SIGTERM, termina o job atual e fecha a conexao antes de sair. O supervisor deve
+permitir esse encerramento; se houver queda, a posse vencida pode ser retomada.
+
+O executor coleta o perfil, seleciona ate 12 posts retornados do proprio autor
+por data decrescente, e consulta apenas as URLs dos Reels selecionados. As views
+vem do Reel Scraper; ausencia continua null. Nao solicita transcript, download
+ou shares. O Profile Scraper nao garante acesso a todo o historico do Instagram.
+
+Cada execucao usada por este worker registra ProviderRun com usuario/dono
+conhecido, Actor, apifyRunId, estado, quantidade e usageTotalUsd quando disponivel.
+Custo desconhecido permanece null. Isso ainda nao instrumenta todas as chamadas
+legadas nem implementa GET /internal/costs. O payload interno do job guarda as
+referencias das etapas para permitir retomada sem iniciar outro Actor conhecido.
+
+Perfil, snapshots, syncStatus ready, lastSyncedAt e conclusao da tarefa sao
+persistidos na mesma transacao, com validacao da posse antes/depois. O historico
+e o intervalo atual de 24h para snapshots do perfil sao preservados. Falha agenda
+as tres tentativas confirmadas; depois, syncStatus fica failed sem apagar dados.
+
+Se uma conexao cair no inicio e nao for possivel persistir o id da Apify, o job
+registra PROVIDER_START_UNCERTAIN e nao repete automaticamente aquele POST. Esse
+caso exige reconciliacao operacional; a API nao promete execucao exatamente uma
+vez nem inventa custo zero para a execucao incerta.
+
+Testes locais usam transporte Apify simulado. Teste PostgreSQL opt-in:
+
+```bash
+RUN_DATABASE_TESTS=true npx vitest run tests/instagram-initial-sync.integration.test.ts
+```
+
+Esse teste usa schema temporario proprio e limpeza confirmada, sem Actors pagos
+nem alteracao de registros do schema public. Valores de custo sao fixtures,
+nao medicoes de cobranca reais. O teste inclui espera controlada para comprovar
+rollback quando a posse vence antes do commit.
+
+Contrato do Actor conferido na [documentacao oficial do Reel Scraper](https://apify.com/apify/instagram-reel-scraper/api/openapi).

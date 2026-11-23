@@ -20,6 +20,8 @@ export interface ProfileCollection {
   profile: CollectedProfile;
   collectedAt: Date;
   refreshMetricsSince?: Date;
+  metricSource?: 'initial' | 'daily';
+  refreshRecentPostsLimit?: 10 | 12;
   posts: {
     instagramPostId: string;
     type: InstagramMediaType;
@@ -49,97 +51,7 @@ export async function saveProfileCollection(
     try {
       return await client.$transaction(
         async (tx) => {
-          const { followers, following, postsCount, ...identity } = collection.profile;
-          const profile = await tx.instagramProfile.upsert({
-            where: { instagramId: identity.instagramId },
-            create: identity,
-            update: identity,
-          });
-          const latestSnapshot = await tx.instagramProfileSnapshot.findFirst({
-            where: { instagramProfileId: profile.id },
-            orderBy: { collectedAt: 'desc' },
-          });
-          if (
-            !latestSnapshot ||
-            collection.collectedAt.getTime() - latestSnapshot.collectedAt.getTime() >= DAY_MS
-          ) {
-            await tx.instagramProfileSnapshot.create({
-              data: {
-                instagramProfileId: profile.id,
-                followers,
-                following,
-                postsCount,
-                collectedAt: collection.collectedAt,
-              },
-            });
-          }
-
-          for (const post of collection.posts) {
-            const { likesCount, likesHidden, commentsCount, viewsCount, ...content } = post;
-            const existing = await tx.instagramPost.findUnique({
-              where: { instagramPostId: post.instagramPostId },
-            });
-            if (existing && existing.instagramProfileId !== profile.id) {
-              // Nunca mover silenciosamente uma publicação de autor.
-              throw new Error('A publicação já está vinculada a outro perfil');
-            }
-            const savedPost = await tx.instagramPost.upsert({
-              where: { instagramPostId: post.instagramPostId },
-              create: {
-                ...content,
-                instagramProfileId: profile.id,
-                lastCollectedAt: collection.collectedAt,
-              },
-              update: content,
-            });
-            if (!existing) {
-              await tx.instagramPostMetricSnapshot.create({
-                data: {
-                  instagramPostId: savedPost.id,
-                  source: collection.refreshMetricsSince ? 'daily' : 'initial',
-                  likesCount,
-                  likesHidden,
-                  commentsCount,
-                  viewsCount,
-                  collectedAt: collection.collectedAt,
-                },
-              });
-            }
-          }
-          if (collection.refreshMetricsSince) {
-            const latestPosts = await tx.instagramPost.findMany({
-              where: { instagramProfileId: profile.id, timestamp: { not: null } },
-              orderBy: [{ timestamp: 'desc' }, { id: 'asc' }],
-              take: 10,
-              select: { id: true, instagramPostId: true },
-            });
-            const collected = new Map(collection.posts.map((post) => [post.instagramPostId, post]));
-            for (const post of latestPosts) {
-              const metrics = collected.get(post.instagramPostId);
-              if (!metrics) continue; // Não transformar métricas antigas em uma coleta nova.
-              const latest = await tx.instagramPostMetricSnapshot.findFirst({
-                where: { instagramPostId: post.id },
-                orderBy: { collectedAt: 'desc' },
-              });
-              if (latest && latest.collectedAt >= collection.refreshMetricsSince) continue;
-              await tx.instagramPostMetricSnapshot.create({
-                data: {
-                  instagramPostId: post.id,
-                  source: 'daily',
-                  likesCount: metrics.likesCount,
-                  likesHidden: metrics.likesHidden,
-                  commentsCount: metrics.commentsCount,
-                  viewsCount: metrics.viewsCount,
-                  collectedAt: collection.collectedAt,
-                },
-              });
-              await tx.instagramPost.update({
-                where: { id: post.id },
-                data: { lastCollectedAt: collection.collectedAt },
-              });
-            }
-          }
-          return { instagramProfileId: profile.id };
+          return saveProfileCollectionInTransaction(collection, tx);
         },
         {
           isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
@@ -158,4 +70,102 @@ export async function saveProfileCollection(
     }
   }
   throw new Error('Não foi possível concluir a persistência');
+}
+
+// O worker chama esta versao na mesma transacao que valida sua posse e conclui o job.
+export async function saveProfileCollectionInTransaction(
+  collection: ProfileCollection,
+  tx: Prisma.TransactionClient,
+) {
+  const { followers, following, postsCount, ...identity } = collection.profile;
+  const profile = await tx.instagramProfile.upsert({
+    where: { instagramId: identity.instagramId },
+    create: identity,
+    update: identity,
+  });
+  const latestSnapshot = await tx.instagramProfileSnapshot.findFirst({
+    where: { instagramProfileId: profile.id },
+    orderBy: { collectedAt: 'desc' },
+  });
+  if (
+    !latestSnapshot ||
+    collection.collectedAt.getTime() - latestSnapshot.collectedAt.getTime() >= DAY_MS
+  ) {
+    await tx.instagramProfileSnapshot.create({
+      data: {
+        instagramProfileId: profile.id,
+        followers,
+        following,
+        postsCount,
+        collectedAt: collection.collectedAt,
+      },
+    });
+  }
+
+  for (const post of collection.posts) {
+    const { likesCount, likesHidden, commentsCount, viewsCount, ...content } = post;
+    const existing = await tx.instagramPost.findUnique({
+      where: { instagramPostId: post.instagramPostId },
+    });
+    if (existing && existing.instagramProfileId !== profile.id) {
+      // Nunca mover silenciosamente uma publicação de autor.
+      throw new Error('A publicação já está vinculada a outro perfil');
+    }
+    const savedPost = await tx.instagramPost.upsert({
+      where: { instagramPostId: post.instagramPostId },
+      create: {
+        ...content,
+        instagramProfileId: profile.id,
+        lastCollectedAt: collection.collectedAt,
+      },
+      update: content,
+    });
+    if (!existing) {
+      await tx.instagramPostMetricSnapshot.create({
+        data: {
+          instagramPostId: savedPost.id,
+          source: collection.metricSource ?? (collection.refreshMetricsSince ? 'daily' : 'initial'),
+          likesCount,
+          likesHidden,
+          commentsCount,
+          viewsCount,
+          collectedAt: collection.collectedAt,
+        },
+      });
+    }
+  }
+  if (collection.refreshMetricsSince) {
+    const latestPosts = await tx.instagramPost.findMany({
+      where: { instagramProfileId: profile.id, timestamp: { not: null } },
+      orderBy: [{ timestamp: 'desc' }, { id: 'asc' }],
+      take: collection.refreshRecentPostsLimit ?? 10,
+      select: { id: true, instagramPostId: true },
+    });
+    const collected = new Map(collection.posts.map((post) => [post.instagramPostId, post]));
+    for (const post of latestPosts) {
+      const metrics = collected.get(post.instagramPostId);
+      if (!metrics) continue; // Não transformar métricas antigas em uma coleta nova.
+      const latest = await tx.instagramPostMetricSnapshot.findFirst({
+        where: { instagramPostId: post.id },
+        orderBy: { collectedAt: 'desc' },
+      });
+      if (latest && latest.collectedAt >= collection.refreshMetricsSince) continue;
+      await tx.instagramPostMetricSnapshot.create({
+        data: {
+          instagramPostId: post.id,
+          source: collection.metricSource ?? 'daily',
+          likesCount: metrics.likesCount,
+          likesHidden: metrics.likesHidden,
+          commentsCount: metrics.commentsCount,
+          viewsCount: metrics.viewsCount,
+          collectedAt: collection.collectedAt,
+        },
+      });
+      await tx.instagramPost.update({
+        where: { id: post.id },
+        data: { lastCollectedAt: collection.collectedAt },
+      });
+    }
+  }
+  return { instagramProfileId: profile.id };
 }

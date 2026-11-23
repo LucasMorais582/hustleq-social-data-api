@@ -22,6 +22,10 @@ export async function lookupInstagramProfile(
     ? await fetchInstagramProfile(request.username, { timeout: 60, waitSecs: 70 })
     : await fetchInstagramProfile(request.username);
 
+  return parseInstagramProfileResult(rawItem, scheduled?.expectedInstagramId);
+}
+
+export function parseInstagramProfileResult(rawItem: unknown, expectedInstagramId?: string) {
   if (!rawItem) throw new ProfileLookupError('PROFILE_NOT_FOUND');
   const statusResult = z
     .object({
@@ -51,7 +55,7 @@ export async function lookupInstagramProfile(
       'A Apify retornou um perfil em formato inválido',
     );
   const item = result.data;
-  if (scheduled && item.id !== scheduled.expectedInstagramId) {
+  if (expectedInstagramId && item.id !== expectedInstagramId) {
     throw new ProviderError(
       503,
       'PROVIDER_INVALID_RESPONSE',

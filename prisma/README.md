@@ -346,3 +346,24 @@ Este teste usa schema aleatorio proprio com commits visiveis entre conexoes,
 para disputar chaves e linhas bloqueadas. Remove o schema em finally e verifica
 sua ausencia. Nao usa rollback unico, nao altera registros de public e nao chama
 Apify. Os demais testes opt-in de migration continuam usando rollback.
+
+## Etapa 10 — persistencia do Initial Profile Sync
+
+Sem migration adicional. O worker Initial usa a tabela de fila aplicada e
+ProviderRun. As referencias das etapas sao persistidas no JSON do job, sem
+credenciais. IDs conhecidos da Apify permitem retomada da mesma execucao.
+
+`saveProfileCollectionInTransaction` permite gravar os dados e concluir o job
+na mesma transacao protegida pela posse. O worker usa source initial, ate 12
+posts retornados do autor e views do Reel Scraper. As rotas/cron legados mantem
+seus defaults. Snapshot de perfil continua com intervalo de 24h.
+
+O novo teste opt-in valida esse fluxo no PostgreSQL com transporte Apify simulado:
+
+```bash
+RUN_DATABASE_TESTS=true npx vitest run tests/instagram-initial-sync.integration.test.ts
+```
+
+Cria e remove schema temporario, testa custos fixture, retomada e rollback por
+posse vencida durante a transacao. Nao executa Actors nem altera public. O worker
+fica desligado por padrao; o enqueue pelo endpoint de convites ainda e pendente.

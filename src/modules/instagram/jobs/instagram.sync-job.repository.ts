@@ -1,5 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { Prisma, type PrismaClient, type InstagramSyncJob } from '@prisma/client';
+import {
+  Prisma,
+  type PrismaClient,
+  type InstagramSyncJob,
+  type InstagramSyncJobType,
+} from '@prisma/client';
 import { getPrismaClient } from '../../../provider/database/prisma.client.js';
 import {
   enqueueSyncJobSchema,
@@ -46,6 +51,7 @@ export async function enqueueInstagramSyncJob(
 export async function claimNextInstagramSyncJob(
   leaseMs: number,
   client: QueueClient = getPrismaClient(),
+  type?: InstagramSyncJobType,
 ) {
   syncJobLeaseSchema.parse(leaseMs);
   const token = randomUUID(); // Token de posse, não ID de entidade.
@@ -59,11 +65,33 @@ export async function claimNextInstagramSyncJob(
       SELECT "id" FROM "InstagramSyncJob"
       WHERE "status" = 'PENDING' AND "runAt" <= statement_timestamp()
         AND "attempts" < ${SYNC_JOB_MAX_ATTEMPTS}
+        ${type ? Prisma.sql`AND "type" = ${type}::"InstagramSyncJobType"` : Prisma.empty}
       ORDER BY "runAt" ASC, "createdAt" ASC, "id" ASC
       FOR UPDATE SKIP LOCKED LIMIT 1
     ) RETURNING job.*
   `;
   return jobs[0] ?? null;
+}
+
+// Retomada da MESMA tentativa: o executor consulta os ProviderRuns persistidos.
+export async function reclaimInitialProfileSyncJob(
+  leaseMs: number,
+  client: QueueClient = getPrismaClient(),
+) {
+  syncJobLeaseSchema.parse(leaseMs);
+  const rows = await client.$queryRaw<InstagramSyncJob[]>`
+    UPDATE "InstagramSyncJob" AS job
+    SET "lockedAt" = statement_timestamp(),
+        "leaseExpiresAt" = statement_timestamp() + (${leaseMs} * INTERVAL '1 millisecond'),
+        "lockToken" = ${randomUUID()}, "updatedAt" = statement_timestamp()
+    WHERE job."id" = (
+      SELECT "id" FROM "InstagramSyncJob"
+      WHERE "type" = 'INITIAL_PROFILE_SYNC' AND "status" = 'RUNNING'
+        AND "leaseExpiresAt" <= statement_timestamp()
+      ORDER BY "leaseExpiresAt", "id" FOR UPDATE SKIP LOCKED LIMIT 1
+    ) RETURNING job.*
+  `;
+  return rows[0] ?? null;
 }
 
 export async function renewInstagramSyncJobLease(

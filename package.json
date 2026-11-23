@@ -22,7 +22,9 @@
     "prisma:migrate:dev": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
-    "vercel:dev": "vercel dev"
+    "vercel:dev": "vercel dev",
+    "dev:worker": "tsx watch src/worker.ts",
+    "start:worker": "node dist/src/worker.js"
   },
   "dependencies": {
     "@fastify/jwt": "^9.1.0",

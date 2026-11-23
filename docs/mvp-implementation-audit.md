@@ -31,7 +31,8 @@ apenas por ter uma rota parecida: faltam contratos, autorização ou jobs.
 Situacao atualizada em 23/11/2026: as oito tabelas (sete do guia e a fila
 InstagramSyncJob autorizada pelo usuario) estao modeladas e suas migrations
 foram aplicadas ao Supabase de desenvolvimento. As operacoes atomicas da fila
-estao implementadas; worker e integracao com os Actors ainda estao pendentes. Ha persistencia,
+e o executor Initial Profile Sync estao implementados. O worker inicia separado
+e desabilitado por padrao; falta conectar os endpoints 2/14 e demais jobs. Ha persistencia,
 normalizacao e guards JWT de usuario/servico. Os endpoints 5, 6 e 7 usam
 OWNER/COMPETITOR nas leituras do banco; o endpoint 9 entrega o historico de metricas dos posts. Os demais endpoints continuam pendentes
 ou parciais; a criacao de reservas, cache em uso, custos e jobs duraveis
@@ -39,22 +40,22 @@ ainda faltam. Atribuicao de dono e liberacao de reserva estao nos endpoints 3/4.
 
 ## Funcionalidades - acompanhamento atual
 
-| Funcionalidade                     | Situacao                                        | O que falta                                                   |
-| ---------------------------------- | ----------------------------------------------- | ------------------------------------------------------------- |
-| Sete tabelas e migrations          | Prontas                                         | Evolucoes quando necessarias nas proximas etapas              |
-| Fila interna da VPS                | Migration aplicada e operacoes atomicas prontas | Worker, retomada com reconciliacao Apify e integracao de jobs |
-| IDs string e legado                | Prontos                                         | Alinhamento externo sobre CUID, que nao e UUID                |
-| JWT de usuario/servico             | Base pronta                                     | Ligar os guards as demais rotas MVP                           |
-| Normalizacao e fixtures            | Base pronta                                     | Enriquecimento real pelo Reel Scraper nos jobs                |
-| Persistencia                       | Base pronta                                     | Integrar os novos fluxos/jobs                                 |
-| Leituras de perfil/posts/historico | Endpoints 5-7 e 9 prontos                       | Validar com o adaptador do backend principal                  |
-| Convites, reserva e dono           | Parcial: endpoints 3 e 4 prontos                | Endpoint 2 e Initial Sync                                     |
-| Concorrentes/Watched               | Parcial                                         | Contrato MVP, autorizacao e Initial/Watched Sync              |
-| Coleta diaria                      | Parcial                                         | Prazo aplicado; faltam 12 posts/4h, elegibilidade MVP e jobs  |
-| Post Refresh e teto de seguranca   | Pendentes                                       | Endpoints 8/10, deduplicacao, fuso e quota                    |
-| Custos Apify                       | Estrutura pronta                                | Preencher ProviderRun e endpoint 12                           |
-| Discover/cache                     | Estrutura/provider prontos                      | Endpoint 16, cache compartilhado e aquecimento                |
-| Deploy e integracao com backend    | VPS confirmada, deploy pendente                 | Configurar API/worker e validar no ambiente acordado          |
+| Funcionalidade                     | Situacao                                 | O que falta                                                  |
+| ---------------------------------- | ---------------------------------------- | ------------------------------------------------------------ |
+| Sete tabelas e migrations          | Prontas                                  | Evolucoes quando necessarias nas proximas etapas             |
+| Fila interna da VPS                | Operacoes e worker Initial implementados | Integrar endpoints 2/14 e demais executores                  |
+| IDs string e legado                | Prontos                                  | Alinhamento externo sobre CUID, que nao e UUID               |
+| JWT de usuario/servico             | Base pronta                              | Ligar os guards as demais rotas MVP                          |
+| Normalizacao e fixtures            | Base pronta                              | Enriquecimento real pelo Reel Scraper nos jobs               |
+| Persistencia                       | Base pronta                              | Integrar os novos fluxos/jobs                                |
+| Leituras de perfil/posts/historico | Endpoints 5-7 e 9 prontos                | Validar com o adaptador do backend principal                 |
+| Convites, reserva e dono           | Parcial: endpoints 3 e 4 prontos         | Endpoint 2 e Initial Sync                                    |
+| Concorrentes/Watched               | Parcial                                  | Contrato MVP, autorizacao e Initial/Watched Sync             |
+| Coleta diaria                      | Parcial                                  | Prazo aplicado; faltam 12 posts/4h, elegibilidade MVP e jobs |
+| Post Refresh e teto de seguranca   | Pendentes                                | Endpoints 8/10, deduplicacao, fuso e quota                   |
+| Custos Apify                       | ProviderRun no worker Initial            | Instrumentar demais fluxos, lotes e endpoint 12              |
+| Discover/cache                     | Estrutura/provider prontos               | Endpoint 16, cache compartilhado e aquecimento               |
+| Deploy e integracao com backend    | VPS confirmada, deploy pendente          | Configurar API/worker e validar no ambiente acordado         |
 
 ## Inventário dos 16 endpoints
 
@@ -107,16 +108,16 @@ ownerUserId e atribuido explicitamente pelo endpoint interno 3, nunca por efeito
 
 ## Banco - oito tabelas aplicadas ao desenvolvimento
 
-| Tabela                      | Estado atual                                                   | Pendente                                                         |
-| --------------------------- | -------------------------------------------------------------- | ---------------------------------------------------------------- |
-| InstagramProfile            | Identidade, reserva, monitoramento, syncStatus e lastSyncedAt  | Fluxos internos, elegibilidade e atualizacao pelos jobs          |
-| InstagramProfileSnapshot    | Contagens anulaveis e collectedAt; intervalo atual de 24h      | Resolver 20h/24h do guia antes de mudar os jobs                  |
-| InstagramCompetitor         | Relacao, endedAt, historico e limite de tres ativos            | Adaptar contrato/autorizacao e elegibilidade do Watched Sync     |
-| InstagramPost               | Conteudo e lastCollectedAt ligados a gravacao de metrica nova  | Frescor de leitura/on_open no endpoint 8                         |
-| InstagramPostMetricSnapshot | Historico imutavel, likesHidden, source, views BigInt          | Endpoint 10 e fontes dos novos jobs; legado preserva source null |
-| DiscoverCache               | Modelo e migration aplicados                                   | Endpoint, chave normalizada, TTL e coordenacao de buscas         |
-| ProviderRun                 | Modelo, Decimal e indices aplicados                            | Registro das execucoes, custos, deduplicacao e recuperacao       |
-| InstagramSyncJob            | Fila aplicada, enqueue/claim/renovacao/conclusao/falha prontos | Worker, recuperacao de lease vencida e integracao Actors         |
+| Tabela                      | Estado atual                                                                   | Pendente                                                         |
+| --------------------------- | ------------------------------------------------------------------------------ | ---------------------------------------------------------------- |
+| InstagramProfile            | Identidade, reserva, monitoramento, syncStatus e lastSyncedAt                  | Fluxos internos, elegibilidade e atualizacao pelos jobs          |
+| InstagramProfileSnapshot    | Contagens anulaveis e collectedAt; intervalo atual de 24h                      | Resolver 20h/24h do guia antes de mudar os jobs                  |
+| InstagramCompetitor         | Relacao, endedAt, historico e limite de tres ativos                            | Adaptar contrato/autorizacao e elegibilidade do Watched Sync     |
+| InstagramPost               | Conteudo e lastCollectedAt ligados a gravacao de metrica nova                  | Frescor de leitura/on_open no endpoint 8                         |
+| InstagramPostMetricSnapshot | Historico imutavel, likesHidden, source, views BigInt                          | Endpoint 10 e fontes dos novos jobs; legado preserva source null |
+| DiscoverCache               | Modelo e migration aplicados                                                   | Endpoint, chave normalizada, TTL e coordenacao de buscas         |
+| ProviderRun                 | Registrado pelo worker Initial com custo conhecido/null e referencia por etapa | Demais fluxos, lotes, custos e conciliacao de inicio incerto     |
+| InstagramSyncJob            | Fila e worker Initial com retomada de lease e ids Apify persistidos            | Enqueue pelos endpoints MVP e demais executores                  |
 
 Decisoes preservadas: IDs internos String/cuid(), sem conversao para UUID;
 FKs anteriores com Restrict; contagens e isVerified desconhecidos podem ser null.
@@ -132,7 +133,7 @@ ProviderRun e depois criar uma linha nao impede execucoes concorrentes.
 
 | Job                  | Base existente                                                                                | Pendências                                                                                                                               |
 | -------------------- | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| Initial Profile Sync | Coleta síncrona de perfil, posts do próprio ownerId e primeiro snapshot                       | Job durável disparado por convite/concorrente, status, 12 posts, Reel Scraper, custos e tentativas                                       |
+| Initial Profile Sync | Worker com 12 posts retornados, Reel Scraper, ProviderRun e retomada de execucao conhecida    | Integrar endpoints 2/14; validar cobranca e SLA reais; lotes                                                                             |
 | Daily Profile Sync   | Cron simples as 6h de Nova York; respeita monitoringUntil e atualiza ate dez posts observados | Passar para 4h após confirmação, elegibilidade dono/monitoringUntil, 12 posts, Reels, lotes, ProviderRun, retry e conclusão antes das 6h |
 | Watched Sync         | Todos os perfis salvos entram no cron atual, inclusive relações encerradas                    | Coletar acompanhados por relações ativas, após Daily, deduplicar perfis compartilhados, custos e tentativas                              |
 | Post Refresh         | Não existe                                                                                    | URL de post salvo, Actor adequado, on_open/refresh, deduplicação, snapshot e lastCollectedAt                                             |
@@ -612,3 +613,73 @@ foi removido e sua ausencia foi confirmada. Como ha concorrencia entre conexoes,
 esse teste usa commits e limpeza em finally, nao um rollback unico.
 Prisma migrate status confirmou todas as migrations aplicadas no desenvolvimento.
 Nenhum Actor foi iniciado; a tabela da fila nao recebeu tarefas de negocio.
+
+## Etapa posterior J — worker Initial Profile Sync e ProviderRun
+
+Implementado um processo separado para a VPS (src/worker.ts). Habilitacao
+INSTAGRAM_WORKER_ENABLED=false por padrao, poll configuravel de 100 a 60000ms
+(padrao 5000). Scripts dev:worker/start:worker. Nenhum deploy nem acesso a VPS.
+
+- Consome apenas INITIAL_PROFILE_SYNC explicitamente enfileirado; nao varre
+  perfis pending para criar Actors nem consome tipos ainda sem executor.
+- Coleta perfil pelo username salvo e confere instagramId. Somente posts com
+  ownerId correspondente sao candidatos. Deduplica, ordena por data e seleciona
+  ate 12 retornados; desconhecidos ficam no fim. Nao promete cobertura global
+  dos 12 mais recentes caso o provider nao os devolva.
+- Reel Scraper recebe apenas URLs Instagram dos Reels selecionados, em uma
+  execucao, sem add-ons de shares/transcript/download. Enriquecimento exige ID,
+  tipo e autor correspondentes. Views de Profile Scraper continuam descartadas.
+- ProviderRun passa a registrar as execucoes deste worker: Actor, trigger, usuario
+  conhecido, apifyRunId, estado/erro sanitizado, items e usageTotalUsd quando
+  disponivel, Decimal(10,6). Custo ausente/invalido fica null e releitura sem
+  custo nao apaga valor conhecido. Nao usar os valores dos testes como preco.
+  Rotas legadas ainda nao foram instrumentadas; endpoint 12 continua pendente.
+- Referencias das etapas profile/reels sao gravadas no payload do job na mesma
+  transacao que cria ProviderRun. Retomada usa o apifyRunId conhecido, inclusive
+  para reler dataset apos falha de download. Uma execucao definitivamente falha
+  pode ser repetida conforme as tres tentativas ja confirmadas.
+- Apify SDK nao repete automaticamente o POST de inicio neste fluxo. Uma queda
+  entre a chamada e a gravacao do ID gera PROVIDER_START_UNCERTAIN: sem prova de
+  recusa, nao iniciar outro Actor automaticamente. O registro fica sem custo
+  inventado e requer reconciliacao operacional; nao existe exactly-once externo.
+- Posse de dez minutos renovada entre chamadas; retomada atomica de lease
+  vencida troca token e mantem a tentativa, consultando execucoes persistidas.
+  Falhas reais reagendam 1/5min e a terceira encerra como failed.
+- Gravacao de perfil/posts/snapshots, syncStatus ready/lastSyncedAt e conclusao
+  do job ocorrem na mesma transacao serializavel que bloqueia e valida a posse.
+  Ha conferencias no inicio e com relogio real do banco antes do commit; uma
+  posse vencida reverte as escritas. Falha final preserva dados anteriores.
+- Reutilizada persistencia transacional do perfil, mantendo defaults legados
+  (dez posts para o cron atual). Worker usa fonte initial e limite 12; snapshots
+  de perfil continuam na regra atual de 24h. Nenhuma mudanca 20h/4h nesta etapa.
+- Encerramento por sinal aguarda o job atual. Worker desabilitado sai sem abrir
+  conexao. Nao registrar tokens, inputs completos ou erros SQL nos logs.
+
+Consulta de contrato, sem executar Actor: documentacao oficial
+https://apify.com/apify/instagram-reel-scraper/api/openapi e tipos do SDK instalado.
+Os testes usam fixtures sanitizadas ja existentes e transporte simulado.
+
+Esta etapa nao cria endpoint publico de fila, nao implementa a reserva do convite
+(2) nem substitui o fluxo de concorrentes (14). As rotas continuam 7 prontas,
+4 parciais e 5 pendentes, conforme inventario. O proximo passo e ligar o endpoint
+2 ao enqueue transacional. Pausar para o commit antes de prosseguir.
+
+Validacao da etapa J: 514 testes locais passaram (44 novos), cobrindo execucao
+rastreada, retomada, custos nulos/zero, recusa/notice, POST incerto, download de
+dataset, timeout de polling, autor divergente, limite/ordem dos posts, perda de
+posse e falhas de persistencia. Cada ProviderRun criado e vinculado a tentativa
+no payload: recuperar uma falha ja registrada na mesma tentativa nao inicia
+outra execucao nem excede o total confirmado de tres tentativas.
+
+O teste PostgreSQL opt-in passou em cerca de 67s com transporte Apify simulado.
+Validou snapshots/BigInt/source initial, identidade/dono preservados, custos
+fixture, retomada de Actor conhecido sem outro POST de perfil e rollback de
+escrita de dominio quando a posse vence antes do commit. O schema temporario
+foi removido e sua ausencia confirmada. Uma consulta de espera do proprio teste
+foi corrigida para nao retornar o tipo PostgreSQL void ao Prisma; a repeticao
+comprovou o rollback por vencimento da posse, nao por erro da consulta.
+
+Typecheck, lint, format:check e build passaram. O entrypoint compilado com
+INSTAGRAM_WORKER_ENABLED=false saiu sem executar tarefas. Nenhuma migration,
+Actor pago, deploy ou alteracao dos registros de public nesta etapa. Custos e
+SLA reais continuam sem medicao. Pausar para commit do usuario.

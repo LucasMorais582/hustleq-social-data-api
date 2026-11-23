@@ -2,6 +2,11 @@ import 'dotenv/config';
 import { z } from 'zod';
 
 const envSchema = z.object({
+  INSTAGRAM_WORKER_ENABLED: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
+  INSTAGRAM_WORKER_POLL_MS: z.coerce.number().int().min(100).max(60000).default(5000),
   CRON_SECRET: z.preprocess(
     (value) => (value === '' ? undefined : value),
     z.string().min(32).optional(),
