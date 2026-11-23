@@ -1,4 +1,12 @@
 import { z } from 'zod/v4';
+import { storedProfileResponseSchema } from './instagram.profile.read.schemas.js';
+
+export const updateProfileMonitoringSchema = z.strictObject({
+  monitoringUntil: z.iso.datetime({ offset: true }).nullable(),
+});
+export const profileMonitoringResponseSchema = storedProfileResponseSchema
+  .omit({ metrics: true })
+  .extend({ monitoringUntil: z.iso.datetime().nullable() });
 
 export const assignProfileOwnerSchema = z.strictObject({
   userId: z

@@ -450,3 +450,35 @@ A leitura não coleta nem altera dados, mesmo antigos. Curtidas ocultas retornam
 `likesCount: null` e `likesHidden: true`; contagens desconhecidas permanecem
 `null`, e zero continua zero. `viewsCount` só é devolvido para Reels. Falha do
 banco retorna erro, sem mascará-la como histórico vazio.
+
+## Monitoramento da coleta diaria
+
+O backend principal configura o prazo usando token de servico
+(`sub=hustleq-main`, `scope=service`):
+
+```http
+PATCH /api/v1/internal/instagram/profiles/ID_INTERNO/monitoring
+Authorization: Bearer <JWT_DE_SERVICO>
+Content-Type: application/json
+
+{"monitoringUntil":"2026-12-21T00:00:00Z"}
+```
+
+Retorna 200 com a identidade do perfil, `syncStatus`, `lastSyncedAt` e
+`monitoringUntil` em ISO UTC. Nao inclui dono, reserva ou snapshots. Perfil
+inexistente retorna 404 `PROFILE_NOT_FOUND`; JWT de usuario retorna 403.
+
+- Data futura: o perfil permanece elegivel ate esse instante.
+- Data vencida, inclusive exatamente no instante da selecao: o cron exclui o perfil.
+- `{"monitoringUntil":null}`: remove o prazo e permite as proximas coletas diarias.
+
+O campo e obrigatorio. Aceita instante ISO com Z ou offset; data sem horario,
+body vazio e campos extras retornam 400. O backend principal calcula os 30 dias
+apos o plano ficar inativo; esta API salva exatamente o prazo recebido. Data
+passada e aceita para suspender a participacao na proxima selecao.
+
+O PATCH nao dispara coleta, nao altera acesso de leitura e preserva dono,
+reserva, posts e historico. O cron aplica o filtro ao selecionar o lote: uma
+alteracao nao cancela uma execucao ja iniciada ou um lote ja selecionado. O
+horario atual das 6h de Nova York e os demais criterios do cron continuam os
+mesmos; a migracao para os jobs Daily/Watched da MVP permanece pendente.

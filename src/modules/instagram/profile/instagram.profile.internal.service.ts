@@ -1,6 +1,32 @@
 import type { PrismaClient } from '@prisma/client';
 import { ApiError } from '../../../errors/api.error.js';
 import { withProfileInternalTransaction } from './instagram.profile.internal.repository.js';
+import { instagramUsernameSchema } from '../shared/instagram.provider.schemas.js';
+import { normalizeProfileName } from '../shared/instagram.normalize.js';
+import { profileMonitoringResponseSchema } from './instagram.profile.internal.schemas.js';
+
+export async function updateInstagramProfileMonitoring(
+  profileId: string,
+  monitoringUntil: string | null,
+  client?: PrismaClient,
+) {
+  return withProfileInternalTransaction(async (store) => {
+    if (!(await store.find(profileId))) {
+      throw new ApiError(404, 'PROFILE_NOT_FOUND', 'Perfil não encontrado');
+    }
+    const profile = await store.updateMonitoring(
+      profileId,
+      monitoringUntil === null ? null : new Date(monitoringUntil),
+    );
+    return profileMonitoringResponseSchema.parse({
+      ...profile,
+      username: instagramUsernameSchema.parse(profile.username),
+      name: normalizeProfileName(profile.name),
+      monitoringUntil: profile.monitoringUntil?.toISOString() ?? null,
+      lastSyncedAt: profile.lastSyncedAt?.toISOString() ?? null,
+    });
+  }, client);
+}
 
 export async function assignInstagramProfileOwner(
   profileId: string,

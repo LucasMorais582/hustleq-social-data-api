@@ -37,21 +37,21 @@ ainda faltam. Atribuicao de dono e liberacao de reserva estao nos endpoints 3/4.
 
 ## Funcionalidades - acompanhamento atual
 
-| Funcionalidade                     | Situacao                         | O que falta                                            |
-| ---------------------------------- | -------------------------------- | ------------------------------------------------------ |
-| Sete tabelas e migrations          | Prontas                          | Evolucoes quando necessarias nas proximas etapas       |
-| IDs string e legado                | Prontos                          | Alinhamento externo sobre CUID, que nao e UUID         |
-| JWT de usuario/servico             | Base pronta                      | Ligar os guards as demais rotas MVP                    |
-| Normalizacao e fixtures            | Base pronta                      | Enriquecimento real pelo Reel Scraper nos jobs         |
-| Persistencia                       | Base pronta                      | Integrar os novos fluxos/jobs                          |
-| Leituras de perfil/posts/historico | Endpoints 5-7 e 9 prontos        | Validar com o adaptador do backend principal           |
-| Convites, reserva e dono           | Parcial: endpoints 3 e 4 prontos | Endpoint 2 e Initial Sync                              |
-| Concorrentes/Watched               | Parcial                          | Contrato MVP, autorizacao e Initial/Watched Sync       |
-| Coleta diaria                      | Parcial                          | Hoje 10 posts/6h; guia pede 12/4h e jobs duraveis      |
-| Post Refresh e teto de seguranca   | Pendentes                        | Endpoints 8/10, deduplicacao, fuso e quota             |
-| Custos Apify                       | Estrutura pronta                 | Preencher ProviderRun e endpoint 12                    |
-| Discover/cache                     | Estrutura/provider prontos       | Endpoint 16, cache compartilhado e aquecimento         |
-| Deploy e integracao com backend    | Pendentes                        | Definir hospedagem/jobs e validar no ambiente acordado |
+| Funcionalidade                     | Situacao                         | O que falta                                                  |
+| ---------------------------------- | -------------------------------- | ------------------------------------------------------------ |
+| Sete tabelas e migrations          | Prontas                          | Evolucoes quando necessarias nas proximas etapas             |
+| IDs string e legado                | Prontos                          | Alinhamento externo sobre CUID, que nao e UUID               |
+| JWT de usuario/servico             | Base pronta                      | Ligar os guards as demais rotas MVP                          |
+| Normalizacao e fixtures            | Base pronta                      | Enriquecimento real pelo Reel Scraper nos jobs               |
+| Persistencia                       | Base pronta                      | Integrar os novos fluxos/jobs                                |
+| Leituras de perfil/posts/historico | Endpoints 5-7 e 9 prontos        | Validar com o adaptador do backend principal                 |
+| Convites, reserva e dono           | Parcial: endpoints 3 e 4 prontos | Endpoint 2 e Initial Sync                                    |
+| Concorrentes/Watched               | Parcial                          | Contrato MVP, autorizacao e Initial/Watched Sync             |
+| Coleta diaria                      | Parcial                          | Prazo aplicado; faltam 12 posts/4h, elegibilidade MVP e jobs |
+| Post Refresh e teto de seguranca   | Pendentes                        | Endpoints 8/10, deduplicacao, fuso e quota                   |
+| Custos Apify                       | Estrutura pronta                 | Preencher ProviderRun e endpoint 12                          |
+| Discover/cache                     | Estrutura/provider prontos       | Endpoint 16, cache compartilhado e aquecimento               |
+| Deploy e integracao com backend    | Pendentes                        | Definir hospedagem/jobs e validar no ambiente acordado       |
 
 ## Inventário dos 16 endpoints
 
@@ -71,7 +71,7 @@ usam `{ response: ... }`; as novas leituras 5-7 retornam objetos diretos como no
 | 8   | GET /instagram/posts/:postId                                    | Ausente; POST /instagram/post/search coleta por username, não é equivalente                                                 | Frescor por lastCollectedAt, 200 ou 202, on_open assíncrono e deduplicação                                             |
 | 9   | GET /instagram/posts/:postId/metrics                            | Pronto nesta etapa                                                                                                          | Validacao externa com o adaptador                                                                                      |
 | 10  | POST /instagram/posts/:postId/refresh                           | Ausente                                                                                                                     | Post salvo, 202, execução durável, deduplicação, teto de segurança e falha sem substituir histórico                    |
-| 11  | PATCH /internal/instagram/profiles/:profileId/monitoring        | Ausente                                                                                                                     | monitoringUntil e sua aplicação ao Daily; token de serviço                                                             |
+| 11  | PATCH /internal/instagram/profiles/:profileId/monitoring        | Pronto nesta etapa                                                                                                          | Filtro no cron atual pronto; aplicar tambem aos futuros jobs MVP                                                       |
 | 12  | GET /internal/costs                                             | Ausente                                                                                                                     | Agregações mensais de ProviderRun por usuário/trigger e custos não atribuídos                                          |
 | 13  | GET /instagram/profiles/:profileId/competitors                  | Parcial: lista relações ativas/encerradas com paginação                                                                     | Contrato exato do adaptador e escopo OWNER; não expor ownerUserId                                                      |
 | 14  | POST /instagram/profiles/:profileId/competitors                 | Parcial: exige confirmed:true e comprovante de prévia; salva identidade e relação atomicamente                              | Guia pede body username após busca no endpoint 1, código COMPETITOR_ALREADY_REGISTERED e Initial Sync                  |
@@ -126,13 +126,13 @@ ProviderRun e depois criar uma linha nao impede execucoes concorrentes.
 
 ## Jobs: base atual e lacunas
 
-| Job                  | Base existente                                                                                      | Pendências                                                                                                                               |
-| -------------------- | --------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| Initial Profile Sync | Coleta síncrona de perfil, posts do próprio ownerId e primeiro snapshot                             | Job durável disparado por convite/concorrente, status, 12 posts, Reel Scraper, custos e tentativas                                       |
-| Daily Profile Sync   | Cron simples às 6h de Nova York para todos os perfis; atualiza métricas de até dez posts observados | Passar para 4h após confirmação, elegibilidade dono/monitoringUntil, 12 posts, Reels, lotes, ProviderRun, retry e conclusão antes das 6h |
-| Watched Sync         | Todos os perfis salvos entram no cron atual, inclusive relações encerradas                          | Coletar acompanhados por relações ativas, após Daily, deduplicar perfis compartilhados, custos e tentativas                              |
-| Post Refresh         | Não existe                                                                                          | URL de post salvo, Actor adequado, on_open/refresh, deduplicação, snapshot e lastCollectedAt                                             |
-| Discover Search      | Trends usa o keyword Actor sem cache                                                                | Cache 24h, consulta ampla até 50 posts/30dias, fromCache, custos, aquecimento e tentativas                                               |
+| Job                  | Base existente                                                                                | Pendências                                                                                                                               |
+| -------------------- | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Initial Profile Sync | Coleta síncrona de perfil, posts do próprio ownerId e primeiro snapshot                       | Job durável disparado por convite/concorrente, status, 12 posts, Reel Scraper, custos e tentativas                                       |
+| Daily Profile Sync   | Cron simples as 6h de Nova York; respeita monitoringUntil e atualiza ate dez posts observados | Passar para 4h após confirmação, elegibilidade dono/monitoringUntil, 12 posts, Reels, lotes, ProviderRun, retry e conclusão antes das 6h |
+| Watched Sync         | Todos os perfis salvos entram no cron atual, inclusive relações encerradas                    | Coletar acompanhados por relações ativas, após Daily, deduplicar perfis compartilhados, custos e tentativas                              |
+| Post Refresh         | Não existe                                                                                    | URL de post salvo, Actor adequado, on_open/refresh, deduplicação, snapshot e lastCollectedAt                                             |
+| Discover Search      | Trends usa o keyword Actor sem cache                                                          | Cache 24h, consulta ampla até 50 posts/30dias, fromCache, custos, aquecimento e tentativas                                               |
 
 O cron atual roda dentro da requisição, sequencialmente, com trava somente no
 processo e orçamento de 180s para iniciar coletas, maxDuration 300s. Não há fila,
@@ -470,3 +470,38 @@ com historico real, filtros, source legado, views BigInt, acesso por dono e
 relacao ativa e bloqueio apos encerramento. Rollback e ausencia do schema
 isolado confirmados. Typecheck, lint, format:check e build passaram. Nenhuma
 execucao Apify ou alteracao de dados publicos foi realizada.
+
+## Etapa posterior G — prazo de monitoramento (11)
+
+Autorizado pelo usuario: implementar PATCH de monitoring e aplicar seu filtro ao
+cron existente, mantendo horario e demais criterios para a etapa dos jobs.
+
+- PATCH /api/v1/internal/instagram/profiles/:profileId/monitoring exige token de
+  servico. Body estrito com monitoringUntil ISO (Z/offset) ou null, obrigatorio.
+  Nao aceita alterar dono, reserva, syncStatus ou outros campos pelo mesmo body.
+- Retorna 200 com identidade normalizada do perfil, syncStatus, lastSyncedAt e
+  monitoringUntil em UTC, sem dono/reserva/snapshots. IsVerified desconhecido null.
+  Perfil inexistente e 404 PROFILE_NOT_FOUND. Usuario comum e 403.
+- Somente monitoringUntil e atualizado (alem do updatedAt automatico do Prisma).
+  Transacao serializavel e retry de conflito seguem a infraestrutura interna.
+  Nao coleta, nao apaga dados e nao altera autorizacao de leitura.
+- Cron seleciona monitoringUntil null ou estritamente maior que o instante da
+  selecao. Igualdade ja e vencimento; null retoma elegibilidade da proxima coleta.
+  O backend principal calcula os 30 dias: esta API nao soma prazo implicitamente.
+- Filtro aplicado ao selecionar o lote; nao cancela trabalhos ja iniciados ou
+  selecionados antes da alteracao. Horario continua 6h Nova York. Dono/relacoes
+  ativas, 12 posts, 4h e jobs duraveis continuam para a etapa Daily/Watched.
+- Campo ja existia: sem migration, chamada Apify ou deploy nesta etapa.
+
+Estado: 7 endpoints prontos (3, 4, 5, 6, 7, 9, 11), 4 parciais (1, 13, 14, 15)
+e 5 pendentes (2, 8, 10, 12, 16). Tabelas do inventario atualizadas. Pausar para
+o commit do usuario ao concluir os testes.
+
+Validacao concluida: 446 testes locais passaram (26 novos para monitoring),
+com autenticacao, body estrito, offset UTC, data passada, null, idempotencia,
+reserva/dono preservados, falhas sanitizadas e retries de transacao. Typecheck,
+lint, format:check e build passaram. O teste PostgreSQL opt-in passou em cerca
+de 38s, comprovando data futura elegivel, exclusao no instante exato/depois do
+vencimento e retomada com null, junto das verificacoes anteriores. Rollback e
+ausencia do schema temporario confirmados; nenhum dado do schema public foi
+alterado. Nenhum Actor foi executado.

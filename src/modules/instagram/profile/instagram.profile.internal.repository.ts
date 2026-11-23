@@ -1,10 +1,29 @@
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { getPrismaClient } from '../../../provider/database/prisma.client.js';
 
+const monitoringProfileSelect = {
+  id: true,
+  instagramId: true,
+  username: true,
+  name: true,
+  url: true,
+  bio: true,
+  profilePhoto: true,
+  category: true,
+  isVerified: true,
+  monitoringUntil: true,
+  syncStatus: true,
+  lastSyncedAt: true,
+} satisfies Prisma.InstagramProfileSelect;
+type MonitoringProfile = Prisma.InstagramProfileGetPayload<{
+  select: typeof monitoringProfileSelect;
+}>;
+
 export interface ProfileInternalStore {
   find(profileId: string): Promise<{ id: string; ownerUserId: string | null } | null>;
   assignOwner(profileId: string, userId: string): Promise<void>;
   clearReservation(profileId: string): Promise<void>;
+  updateMonitoring(profileId: string, monitoringUntil: Date | null): Promise<MonitoringProfile>;
 }
 export async function withProfileInternalTransaction<T>(
   work: (store: ProfileInternalStore) => Promise<T>,
@@ -34,6 +53,12 @@ export async function withProfileInternalTransaction<T>(
                 select: { id: true },
               });
             },
+            updateMonitoring: (id, monitoringUntil) =>
+              tx.instagramProfile.update({
+                where: { id },
+                data: { monitoringUntil },
+                select: monitoringProfileSelect,
+              }),
           }),
         {
           isolationLevel: Prisma.TransactionIsolationLevel.Serializable,

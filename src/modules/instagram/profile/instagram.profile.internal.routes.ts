@@ -10,10 +10,13 @@ import {
   assignProfileOwnerSchema,
   assignedProfileOwnerResponseSchema,
   clearProfileReservationSchema,
+  updateProfileMonitoringSchema,
+  profileMonitoringResponseSchema,
 } from './instagram.profile.internal.schemas.js';
 import {
   assignInstagramProfileOwner,
   clearInstagramProfileReservation,
+  updateInstagramProfileMonitoring,
 } from './instagram.profile.internal.service.js';
 
 export async function instagramProfileInternalRoutes(app: FastifyInstance) {
@@ -34,6 +37,19 @@ export async function instagramProfileInternalRoutes(app: FastifyInstance) {
     404: readErrorSchema,
     500: readErrorSchema,
   };
+  route.patch(
+    '/internal/instagram/profiles/:profileId/monitoring',
+    {
+      schema: {
+        ...base,
+        summary: 'Define até quando o perfil participa da coleta diária; exige serviço',
+        body: updateProfileMonitoringSchema,
+        response: { 200: profileMonitoringResponseSchema, ...errors },
+      },
+    },
+    (request) =>
+      updateInstagramProfileMonitoring(request.params.profileId, request.body.monitoringUntil),
+  );
   route.post(
     '/internal/instagram/profiles/:profileId/owner',
     {
