@@ -319,3 +319,30 @@ RUN_DATABASE_TESTS=true npx vitest run tests/instagram-sync-job-migration.integr
 
 A migration esta preparada e nao foi aplicada ao schema public. Depois do commit,
 a proxima etapa aplicara a migration ao desenvolvimento e implementara a fila.
+
+## Etapa 9 — fila aplicada e operacoes de persistencia
+
+A migration 20261123000000_add_instagram_sync_jobs foi aplicada ao Supabase de
+desenvolvimento apos commit. A API continua sem novos endpoints nesta etapa.
+
+`src/modules/instagram/jobs/instagram.sync-job.repository.ts` implementa enqueue,
+claim atomico com SKIP LOCKED, renovacao de posse, conclusao e falha/reagendamento.
+O usuario definiu tres tentativas totais: inicial, espera de 1 minuto e espera de
+5 minutos; a terceira falha encerra o job. O relogio usado nas transicoes e o do
+PostgreSQL. A chave ativa e liberada na conclusao, mantendo o historico.
+
+O worker ainda nao foi ligado aos Actors. Lease vencida nao e reexecutada
+automaticamente: falta reconciliar ProviderRun/Apify e proteger a gravacao de
+dados com o token de posse na mesma transacao. Nao iniciar um consumidor que
+trate qualquer job como concluido sem executar e persistir a coleta real.
+
+Teste de concorrencia real entre conexoes:
+
+```bash
+RUN_DATABASE_TESTS=true npx vitest run tests/instagram-sync-job-queue.integration.test.ts
+```
+
+Este teste usa schema aleatorio proprio com commits visiveis entre conexoes,
+para disputar chaves e linhas bloqueadas. Remove o schema em finally e verifica
+sua ausencia. Nao usa rollback unico, nao altera registros de public e nao chama
+Apify. Os demais testes opt-in de migration continuam usando rollback.

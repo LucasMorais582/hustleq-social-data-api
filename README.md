@@ -482,3 +482,17 @@ reserva, posts e historico. O cron aplica o filtro ao selecionar o lote: uma
 alteracao nao cancela uma execucao ja iniciada ou um lote ja selecionado. O
 horario atual das 6h de Nova York e os demais criterios do cron continuam os
 mesmos; a migracao para os jobs Daily/Watched da MVP permanece pendente.
+
+## Fila interna para a VPS
+
+A tabela InstagramSyncJob foi aplicada ao banco de desenvolvimento. As operacoes
+internas de enfileiramento, reserva atomica, renovacao de posse e conclusao/falha
+estao em `src/modules/instagram/jobs`. Nao ha endpoint publico para essa fila.
+
+A regra confirmada e tres tentativas no total: inicial, espera de 1 minuto e
+espera de 5 minutos. A terceira falha encerra o job. Jobs concluidos permanecem
+no historico e liberam sua chave ativa para uma nova coleta.
+
+O processo do worker, integracao com Actors/custos e recuperacao apos uma queda
+ainda estao pendentes. Nenhuma rota comeca a coletar em segundo plano apenas por
+existirem a tabela e essas operacoes. O cron legado continua como antes.
