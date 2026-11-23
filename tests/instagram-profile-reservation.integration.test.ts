@@ -74,6 +74,7 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')(
           const run = runs.get(id)!;
           if (!run.actor.includes('profile')) return { items: [reelFixture], total: 1 };
           const username = (run.input.usernames as string[])[0];
+          if (username === 'missing_profile') return { items: [], total: 0 };
           const profile =
             username === 'second_profile'
               ? { ...profileFixture, id: 'second-instagram-id', username, latestPosts: [] }
@@ -244,6 +245,13 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')(
             'ALTER TABLE "InstagramSyncJob_unavailable" RENAME TO "InstagramSyncJob"',
           ),
         );
+        const searchPath = '/api/v1/instagram/profiles/search';
+        const preview = (username: string, userId = 'preview-user') =>
+          app.inject({
+            url: `${searchPath}?username=${username}`,
+            headers: authHeaders({ sub: userId }),
+          });
+        expect((await preview('example_profile')).json().ownershipStatus).toBe('reserved');
         const assigned = await app.inject({
           method: 'POST',
           url: `${path}/${profileId}/owner`,
@@ -254,6 +262,38 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')(
         const owned = await reserve('invite-after-owner');
         expect(owned.statusCode).toBe(409);
         expect(owned.json().error.code).toBe('PROFILE_ALREADY_OWNED');
+        const beforePreview = await inSchema((tx) =>
+          tx.instagramProfile.findUniqueOrThrow({ where: { id: profileId } }),
+        );
+        expect((await preview('example_profile', 'external-owner')).json().ownershipStatus).toBe(
+          'owned_by_me',
+        );
+        expect((await preview('example_profile')).json().ownershipStatus).toBe('owned_by_other');
+        expect((await preview('second_profile')).json().ownershipStatus).toBe('available');
+        expect((await preview('missing_profile')).json()).toEqual({
+          username: 'missing_profile',
+          ownershipStatus: 'not_found',
+        });
+        expect(
+          await inSchema((tx) =>
+            tx.instagramProfile.findUnique({ where: { instagramId: 'second-instagram-id' } }),
+          ),
+        ).toBeNull();
+        expect(
+          await inSchema((tx) =>
+            tx.instagramProfile.findUniqueOrThrow({ where: { id: profileId } }),
+          ),
+        ).toEqual(beforePreview);
+        expect(await inSchema((tx) => tx.instagramSyncJob.count())).toBe(1);
+        const searchRuns = await inSchema((tx) =>
+          tx.providerRun.findMany({ where: { trigger: 'search' } }),
+        );
+        expect(searchRuns).toHaveLength(5);
+        expect(
+          searchRuns.every(
+            (run) => run.userId === 'preview-user' || run.userId === 'external-owner',
+          ),
+        ).toBe(true);
         expect(await inSchema((tx) => tx.instagramPost.count())).toBe(2);
         expect(await inSchema((tx) => tx.instagramProfileSnapshot.count())).toBe(1);
       } finally {

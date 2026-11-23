@@ -1,6 +1,6 @@
 import { ApifyClient } from 'apify-client';
 
-export function createApifyClient(options: { maxRetries?: number } = {}) {
+export function createApifyClient(options: { maxRetries?: number; timeoutSecs?: number } = {}) {
   const token = process.env.APIFY_API_TOKEN;
 
   if (!token) {

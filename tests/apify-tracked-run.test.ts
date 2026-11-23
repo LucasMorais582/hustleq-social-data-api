@@ -147,7 +147,7 @@ describe('tracked Apify executions', () => {
   it('keeps SUCCEEDED on a dataset download failure so the retry can read the same run', async () => {
     const f = fixture();
     f.gateway.items.mockRejectedValue(new Error('download failed'));
-    await expect(f.run()).rejects.toThrow('download failed');
+    await expect(f.run()).rejects.toMatchObject({ code: 'PROVIDER_UNAVAILABLE' });
     expect(f.update).not.toHaveBeenCalledWith(
       'local-run',
       expect.objectContaining({ status: 'failed' }),

@@ -1,6 +1,11 @@
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { authenticate, authenticatedUserId } from '../../../auth/authenticate.js';
+import { searchInstagramProfile } from './instagram.profile.search.service.js';
+import {
+  instagramProfileSearchQuerySchema,
+  instagramProfileSearchResponseSchema,
+} from './instagram.profile.search.schemas.js';
 import {
   instagramProfileIdParamsSchema,
   instagramReadRangeSchema,
@@ -36,6 +41,24 @@ export async function instagramProfileReadRoutes(app: FastifyInstance) {
     404: readErrorSchema,
     500: readErrorSchema,
   };
+  route.get(
+    '/instagram/profiles/search',
+    {
+      schema: {
+        tags: base.tags,
+        security: base.security,
+        summary: 'Pesquisa o perfil e sua disponibilidade, sem cadastrar ou reservar',
+        querystring: instagramProfileSearchQuerySchema,
+        response: {
+          200: instagramProfileSearchResponseSchema,
+          ...errors,
+          429: readErrorSchema,
+          503: readErrorSchema,
+        },
+      },
+    },
+    (request) => searchInstagramProfile(request.query, authenticatedUserId(request)),
+  );
   route.get(
     '/instagram/profiles/:profileId',
     {

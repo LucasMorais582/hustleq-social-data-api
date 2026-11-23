@@ -30,13 +30,18 @@ export class ProviderStartUncertain extends Error {
   }
 }
 
-export function createTrackedRunGateway(options: { timeout?: number } = {}): TrackedRunGateway {
+export function createTrackedRunGateway(
+  options: { timeout?: number; waitForFinish?: number; timeoutSecs?: number } = {},
+): TrackedRunGateway {
   // POST de início não pode ser repetido automaticamente pelo SDK após timeout.
-  const client = createApifyClient({ maxRetries: 0 });
+  const client = createApifyClient({
+    maxRetries: 0,
+    ...(options.timeoutSecs === undefined ? {} : { timeoutSecs: options.timeoutSecs }),
+  });
   return {
     start: (actor, input) =>
       client.actor(actor).start(input, { timeout: options.timeout ?? 300, restartOnError: false }),
-    get: (id) => client.run(id).get({ waitForFinish: 20 }),
+    get: (id) => client.run(id).get({ waitForFinish: options.waitForFinish ?? 20 }),
     items: (id) => client.dataset(id).listItems({ limit: 1000 }),
   };
 }
@@ -46,6 +51,22 @@ export function providerRunCost(value: number | undefined) {
   return cost.greaterThan('9999.999999') ? null : cost;
 }
 const terminal = new Set(['SUCCEEDED', 'FAILED', 'TIMED-OUT', 'ABORTED']);
+
+async function readProvider<T>(read: () => Promise<T>, message: string): Promise<T> {
+  try {
+    return await read();
+  } catch (error) {
+    if (error instanceof ProviderError) throw error;
+    const status =
+      error &&
+      typeof error === 'object' &&
+      'statusCode' in error &&
+      typeof error.statusCode === 'number'
+        ? error.statusCode
+        : undefined;
+    throw providerFailure(message, status);
+  }
+}
 
 export async function executeTrackedActor(
   actor: string,
@@ -64,7 +85,10 @@ export async function executeTrackedActor(
   }
   let run: ApifyRunSnapshot | undefined;
   if (prepared.run.apifyRunId) {
-    run = await gateway.get(prepared.run.apifyRunId);
+    run = await readProvider(
+      () => gateway.get(prepared.run.apifyRunId!),
+      'Não foi possível consultar a execução da Apify',
+    );
   } else if (!prepared.fresh) {
     // Uma queda entre o POST e a gravação do id não permite assumir que não houve cobrança.
     await store.update(prepared.run.id, { error: 'PROVIDER_START_UNCERTAIN' });
@@ -96,34 +120,43 @@ export async function executeTrackedActor(
     await store.update(prepared.run.id, { apifyRunId: run.id });
   }
   if (!run) throw providerFailure('A execução da Apify não foi encontrada');
+  let activeRun: ApifyRunSnapshot = run;
   let polls = 0;
-  while (!terminal.has(run.status)) {
+  while (!terminal.has(activeRun.status)) {
     if (++polls > 30) throw providerFailure('Tempo limite ao aguardar a execução da Apify');
     await heartbeat();
-    const current = await gateway.get(run.id);
+    const currentId: string = activeRun.id;
+    const current: ApifyRunSnapshot | undefined = await readProvider(
+      () => gateway.get(currentId),
+      'Não foi possível consultar a execução da Apify',
+    );
     if (!current) throw providerFailure('A execução da Apify não foi encontrada');
-    run = current;
+    activeRun = current;
   }
   const failed =
-    run.status !== 'SUCCEEDED' ||
-    Boolean(run.statusMessage && isProviderRateLimit(run.statusMessage));
+    activeRun.status !== 'SUCCEEDED' ||
+    Boolean(activeRun.statusMessage && isProviderRateLimit(activeRun.statusMessage));
   const failure = failed
-    ? providerFailure(run.statusMessage ?? `Execução terminou com ${run.status}`)
+    ? providerFailure(activeRun.statusMessage ?? `Execução terminou com ${activeRun.status}`)
     : null;
-  const cost = providerRunCost(run.usageTotalUsd);
+  const cost = providerRunCost(activeRun.usageTotalUsd);
   await store.update(prepared.run.id, {
     status: failure ? 'failed' : 'succeeded',
     error: failure?.code ?? null,
     // Ausência em uma releitura não apaga um custo real já observado.
     ...(cost === null ? {} : { costUsd: cost }),
-    finishedAt: run.finishedAt ?? prepared.run.finishedAt ?? new Date(),
+    finishedAt: activeRun.finishedAt ?? prepared.run.finishedAt ?? new Date(),
   });
   if (failure) throw failure;
-  if (!run.defaultDatasetId)
+  if (!activeRun.defaultDatasetId)
     throw new ProviderError(503, 'PROVIDER_INVALID_RESPONSE', 'A Apify não retornou o dataset');
   await heartbeat();
   // Falha de download preserva a execução SUCCEEDED, para reler o mesmo dataset no retry.
-  const dataset = await gateway.items(run.defaultDatasetId);
+  const datasetId = activeRun.defaultDatasetId;
+  const dataset = await readProvider(
+    () => gateway.items(datasetId),
+    'Não foi possível obter o dataset da Apify',
+  );
   if (dataset.total > dataset.items.length)
     throw new ProviderError(
       503,

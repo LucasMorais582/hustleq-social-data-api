@@ -638,3 +638,75 @@ Teste PostgreSQL opt-in, com Apify simulado e schema temporario proprio:
 ```bash
 RUN_DATABASE_TESTS=true npx vitest run tests/instagram-profile-reservation.integration.test.ts
 ```
+
+## Pesquisa de perfil antes do convite — endpoint 1
+
+```http
+GET /api/v1/instagram/profiles/search?username=bahiataste
+Authorization: Bearer <JWT_DE_USUARIO>
+```
+
+Essa rota segue o guia da MVP. A rota legada POST
+`/api/v1/instagram/profile/search` continua disponivel e salva a coleta como
+antes. O novo GET e uma previa: consulta a Apify e retorna a identidade e a
+situacao do vinculo no banco da HustleQ, sem cadastrar/reservar perfil ou salvar
+posts/snapshots. A consulta/normalizacao e compartilhada com o fluxo do convite.
+
+Use JWT com sub do usuario HustleQ, sem scope; token de servico recebe 403.
+Username aceita @ e e normalizado para minusculas. A escrita permitida nesta
+busca e somente o registro de execucao/custo em ProviderRun, com trigger search
+e userId vindo do token. Nao ha tabela User local.
+
+Resposta 200 direta:
+
+```json
+{
+  "instagramId": "123456789",
+  "username": "bahiataste",
+  "name": "Bahia Taste",
+  "bio": "...",
+  "profilePhoto": "https://...",
+  "isVerified": null,
+  "followers": 1358,
+  "following": 210,
+  "postsCount": 96,
+  "ownershipStatus": "available"
+}
+```
+
+Campos desconhecidos permanecem null; zero continua zero. Nao retorna posts,
+ID interno, ownerUserId ou informacoes do convite.
+
+| ownershipStatus | Significado                                               |
+| --------------- | --------------------------------------------------------- |
+| available       | Perfil existe no Instagram, sem dono/reserva ativa na API |
+| owned_by_me     | ownerUserId corresponde ao sub do token                   |
+| owned_by_other  | Perfil possui outro dono na API                           |
+| reserved        | Perfil sem dono, com convite e prazo de reserva ativo     |
+| not_found       | Perfil nao encontrado no Instagram                        |
+
+Dono tem prioridade sobre metadados de reserva. Reserva expirada, inclusive no
+instante exato do vencimento, nao bloqueia a disponibilidade. A consulta usa o
+instagramId real; uma mudanca de username nao cria outro vinculo. O resultado
+e uma previa: a criacao do convite revalida os conflitos no POST interno.
+
+Para inexistente, o GET novo retorna 200 com somente:
+
+```json
+{ "username": "bahiataste", "ownershipStatus": "not_found" }
+```
+
+Perfil privado continua com 404 PROFILE_PRIVATE. Falha/timeout da Apify retorna
+503 PROVIDER_UNAVAILABLE e limite retorna 429 RATE_LIMITED; nao viram not_found.
+Falha no banco retorna erro, sem assumir available. Query extra/invalida e 400.
+
+Cada GET pode consumir uma nova consulta Apify. O lookup do POST de convite e
+uma execucao distinta; o worker reaproveita a execucao desse POST. Nao prometer
+cobranca unica para o conjunto GET/POST ou entre chamadas repetidas.
+
+A busca usa Actor com timeout de 20s, polling de ate 2s por chamada e timeout de
+transporte de 5s, sem retry automatico do POST. Ha orcamento local de 25s para o
+lookup e transacao curta para ler ownership. Isso limita esperas, mas nao comprova
+SLA real menor que 30s sob falha/latencia de banco ou rede. Execucao interrompida
+com ID conhecido permanece rastreavel no ProviderRun, com custo desconhecido
+null; reconciliacao geral de custos fora do worker ainda esta pendente.
