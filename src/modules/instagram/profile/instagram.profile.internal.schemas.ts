@@ -1,5 +1,22 @@
 import { z } from 'zod/v4';
 import { storedProfileResponseSchema } from './instagram.profile.read.schemas.js';
+import { instagramUsernameSchema } from '../shared/instagram.provider.schemas.js';
+
+export const reserveInstagramProfileSchema = z.strictObject({
+  username: instagramUsernameSchema,
+  inviteId: z
+    .string()
+    .min(1)
+    .max(200)
+    .refine((value) => value === value.trim()),
+  reservedUntil: z.iso.datetime({ offset: true }),
+});
+export type ReserveInstagramProfileRequest = z.infer<typeof reserveInstagramProfileSchema>;
+export const reservedInstagramProfileResponseSchema = z.object({
+  profileId: z.string(),
+  username: z.string(),
+  status: z.enum(['syncing', 'ready']),
+});
 
 export const updateProfileMonitoringSchema = z.strictObject({
   monitoringUntil: z.iso.datetime({ offset: true }).nullable(),

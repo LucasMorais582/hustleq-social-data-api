@@ -30,12 +30,12 @@ export class ProviderStartUncertain extends Error {
   }
 }
 
-export function createTrackedRunGateway(): TrackedRunGateway {
+export function createTrackedRunGateway(options: { timeout?: number } = {}): TrackedRunGateway {
   // POST de início não pode ser repetido automaticamente pelo SDK após timeout.
   const client = createApifyClient({ maxRetries: 0 });
   return {
     start: (actor, input) =>
-      client.actor(actor).start(input, { timeout: 300, restartOnError: false }),
+      client.actor(actor).start(input, { timeout: options.timeout ?? 300, restartOnError: false }),
     get: (id) => client.run(id).get({ waitForFinish: 20 }),
     items: (id) => client.dataset(id).listItems({ limit: 1000 }),
   };
@@ -77,7 +77,12 @@ export async function executeTrackedActor(
       const status =
         error && typeof error === 'object' && 'statusCode' in error ? error.statusCode : undefined;
       if (typeof status === 'number' && status >= 400 && status < 500 && status !== 408) {
-        const failure = providerFailure('A Apify recusou o início da execução', status);
+        const message =
+          error instanceof Error ? error.message : 'A Apify recusou o início da execução';
+        const safeMessage = message
+          .replace(/apify_api_[a-zA-Z0-9_-]+/g, '[redacted]')
+          .replace(/([?&]token=)[^&\s]+/gi, '$1[redacted]');
+        const failure = providerFailure(safeMessage, status);
         await store.update(prepared.run.id, {
           status: 'failed',
           error: failure.code,

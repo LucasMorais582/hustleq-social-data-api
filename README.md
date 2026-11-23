@@ -226,11 +226,11 @@ O backend principal é o único cliente da Social Data API. Nas rotas de usuári
 o JWT deve usar `sub` com o ID do usuário HustleQ, sem claim `scope`. Não há
 tabela User local. Tokens com `scope: service` não acessam essas rotas.
 
-O guard `authenticateService` está preparado para as próximas rotas `/internal`:
+O guard `authenticateService` protege as rotas `/internal`:
 exige `sub: "hustleq-main"` e `scope: "service"`, além das mesmas verificações de
 assinatura, emissor, audiência e validade máxima de cinco minutos. Token válido
 com papel inadequado retorna 403 FORBIDDEN; ausente ou inválido retorna 401
-UNAUTHENTICATED. As rotas internas 3 e 4 ja usam esse guard; a criacao de reserva/convite (2) continua pendente.
+UNAUTHENTICATED. As rotas internas 2, 3, 4 e 11 usam esse guard.
 
 O formato dos erros das rotas de negócio passou a ser:
 
@@ -406,8 +406,8 @@ node --import tsx --input-type=module -e 'import { buildApp } from "./src/app.ts
 
 Use esse token no POST/DELETE internos. Para ler o perfil pelos endpoints 5–7,
 use outro JWT, de usuário, com sub igual ao userId atribuído. Esses tokens não
-devem ser enviados ao navegador. O endpoint 2, que cria a reserva e inicia o
-Initial Sync, continua pendente da implementação dos jobs.
+devem ser enviados ao navegador. O endpoint 2 cria a reserva e enfileira o
+Initial Sync, processado pelo worker separado.
 
 ## Histórico de métricas de um post
 
@@ -501,8 +501,8 @@ existirem a tabela e essas operacoes. O cron legado continua como antes.
 
 O primeiro executor da fila suporta `INITIAL_PROFILE_SYNC`. O cron legado e
 as rotas antigas continuam com seu comportamento atual; este worker nao
-transforma todos os perfis salvos em novas tarefas. Os endpoints 2 (convite) e
-14 (novo contrato de conta acompanhada) ainda precisam enfileirar esses jobs.
+transforma todos os perfis salvos em novas tarefas. O endpoint 2 (convite) ja enfileira esses jobs. O endpoint 14 ainda precisa
+ser adaptado ao novo contrato de conta acompanhada.
 
 Configuracao (desabilitado por padrao):
 
@@ -568,3 +568,73 @@ nao medicoes de cobranca reais. O teste inclui espera controlada para comprovar
 rollback quando a posse vence antes do commit.
 
 Contrato do Actor conferido na [documentacao oficial do Reel Scraper](https://apify.com/apify/instagram-reel-scraper/api/openapi).
+
+## Criar a reserva do convite — endpoint 2
+
+Chamado pelo backend principal com token de servico, antes da conta HustleQ existir:
+
+```http
+POST /api/v1/internal/instagram/profiles
+Authorization: Bearer <JWT_DE_SERVICO>
+Content-Type: application/json
+
+{
+  "username": "bahiataste",
+  "inviteId": "ID_DO_CONVITE",
+  "reservedUntil": "2026-11-30T04:59:59Z"
+}
+```
+
+Use uma data futura real em reservedUntil. Aceita username com/sem @ e normaliza
+minusculas. Campos extras, data sem horario/fuso e data vencida retornam 400.
+
+Resposta 201, sem wrapper:
+
+```json
+{
+  "profileId": "ID_INTERNO_STRING",
+  "username": "bahiataste",
+  "status": "syncing"
+}
+```
+
+A requisicao aguarda a consulta de identidade na Apify para obter o instagramId
+real. Depois cria/reutiliza InstagramProfile sem dono, reserva para o convite e
+enfileira o Initial Profile Sync na mesma transacao. O worker reaproveita o
+apifyRunId desse lookup: nao inicia outra coleta de perfil para o mesmo job.
+Snapshots e Reels ficam para o worker; ele precisa estar habilitado e executando.
+
+Um perfil ready coletado ha menos de 24h e sem job ativo pode responder status
+ready sem enfileirar outro sync. Na marca de 24h ja e considerado desatualizado.
+Repetir o convite preserva o ID e nao duplica um job ativo. Cada POST, porem, pode
+realizar nova consulta de identidade e consumir credito; nao e garantia de
+cobranca unica entre varias requisicoes.
+
+Erros principais:
+
+| HTTP    | Codigo                              | Motivo                                            |
+| ------- | ----------------------------------- | ------------------------------------------------- |
+| 400     | INVALID_REQUEST                     | Body invalido ou reservedUntil vencido            |
+| 401/403 | UNAUTHENTICATED / FORBIDDEN         | Token ausente/invalido ou sem papel de servico    |
+| 404     | PROFILE_NOT_FOUND / PROFILE_PRIVATE | Perfil inexistente ou privado                     |
+| 409     | PROFILE_ALREADY_OWNED               | Perfil ja possui dono                             |
+| 409     | PROFILE_RESERVED                    | Outro convite possui reserva ativa                |
+| 429     | RATE_LIMITED                        | Apify recusou por limite                          |
+| 503     | PROVIDER_UNAVAILABLE                | Provider falhou ou inicio nao pode ser confirmado |
+| 500     | INTERNAL_ERROR                      | Falha ao salvar reserva/fila                      |
+
+Reserva expirada pode ser substituida; nenhuma dessas operacoes transfere dono
+ou apaga historico. O aceite continua no POST .../:profileId/owner, e a liberacao
+no DELETE .../:profileId/reservation. O backend principal valida os convites e
+os destinatarios; esta API nao cria tabela User ou Invite.
+
+Custos reais conhecidos do lookup ficam em ProviderRun mesmo quando ocorre
+conflito ou falha posterior. Antes de existir dono, userId fica null. O limite
+de execucao de 60s do Actor nao comprova um SLA HTTP; latencia/cobranca reais
+precisam de validacao com o ambiente de integracao.
+
+Teste PostgreSQL opt-in, com Apify simulado e schema temporario proprio:
+
+```bash
+RUN_DATABASE_TESTS=true npx vitest run tests/instagram-profile-reservation.integration.test.ts
+```

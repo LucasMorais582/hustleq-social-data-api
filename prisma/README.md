@@ -367,3 +367,26 @@ RUN_DATABASE_TESTS=true npx vitest run tests/instagram-initial-sync.integration.
 Cria e remove schema temporario, testa custos fixture, retomada e rollback por
 posse vencida durante a transacao. Nao executa Actors nem altera public. O worker
 fica desligado por padrao; o enqueue pelo endpoint de convites ainda e pendente.
+
+## Etapa 11 — reserva de convite ligada a fila
+
+Sem migration adicional. O endpoint 2 recebe username/inviteId/reservedUntil,
+confirma a identidade com Apify e usa transacao serializavel para criar/reutilizar
+perfil, reservar e enfileirar. A execucao de perfil ja paga e vinculada ao job
+para o worker reler o mesmo dataset, sem outro POST de perfil para esse job.
+
+Conflitos de dono/reserva ativa sao 409. Reserva expirada pode ser substituida;
+mesmo convite nao duplica perfil/job ativo. Perfil pronto ha menos de 24h pode
+ser reservado sem novo job. Campos ownerUserId e historicos nao sao sobrescritos
+pela reserva. Worker continua separado e desligado por padrao.
+
+Teste PostgreSQL com HTTP e worker reais, transporte Apify simulado, concorrencia
+entre convites e falha controlada de acesso a fila:
+
+```bash
+RUN_DATABASE_TESTS=true npx vitest run tests/instagram-profile-reservation.integration.test.ts
+```
+
+Usa schema temporario proprio, preserva o custo do lookup quando a reserva falha
+e confirma a limpeza do schema ao finalizar. Nao executa Actors pagos nem altera
+registros de public. Contrato e limites estao detalhados no README principal.

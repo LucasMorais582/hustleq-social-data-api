@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod/v4';
 import { authenticateService } from '../../../auth/authenticate.js';
+import { reserveInstagramProfile } from './instagram.profile.reservation.service.js';
 import {
   instagramProfileIdParamsSchema,
   readErrorSchema,
@@ -12,6 +13,8 @@ import {
   clearProfileReservationSchema,
   updateProfileMonitoringSchema,
   profileMonitoringResponseSchema,
+  reserveInstagramProfileSchema,
+  reservedInstagramProfileResponseSchema,
 } from './instagram.profile.internal.schemas.js';
 import {
   assignInstagramProfileOwner,
@@ -37,6 +40,25 @@ export async function instagramProfileInternalRoutes(app: FastifyInstance) {
     404: readErrorSchema,
     500: readErrorSchema,
   };
+  route.post(
+    '/internal/instagram/profiles',
+    {
+      schema: {
+        tags: base.tags,
+        security: base.security,
+        summary: 'Confirma a identidade, reserva para o convite e enfileira o Initial Sync',
+        body: reserveInstagramProfileSchema,
+        response: {
+          201: reservedInstagramProfileResponseSchema,
+          ...errors,
+          409: readErrorSchema,
+          429: readErrorSchema,
+          503: readErrorSchema,
+        },
+      },
+    },
+    async (request, reply) => reply.code(201).send(await reserveInstagramProfile(request.body)),
+  );
   route.patch(
     '/internal/instagram/profiles/:profileId/monitoring',
     {

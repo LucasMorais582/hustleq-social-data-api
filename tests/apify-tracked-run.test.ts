@@ -93,6 +93,23 @@ describe('tracked Apify executions', () => {
       expect.objectContaining({ costUsd: null }),
     );
   });
+  it('keeps a refusal message but redacts provider credentials', async () => {
+    const f = fixture();
+    f.gateway.start.mockRejectedValue(
+      Object.assign(
+        new Error(
+          'Free tier: please wait 29 minutes https://api.example/?token=apify_api_fake-secret',
+        ),
+        { statusCode: 403 },
+      ),
+    );
+    const error = await f.run().catch((failure: unknown) => failure);
+    expect(error).toMatchObject({
+      code: 'PROVIDER_RATE_LIMITED',
+      message: expect.stringContaining('29'),
+    });
+    expect((error as Error).message).not.toContain('fake-secret');
+  });
   it('records failed executions and their real costs without returning an empty success', async () => {
     const f = fixture();
     f.gateway.get.mockResolvedValue({ ...f.finished, status: 'FAILED' });
