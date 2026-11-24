@@ -702,3 +702,47 @@ lookup e transacao curta para ler ownership. Isso limita esperas, mas nao compro
 SLA real menor que 30s sob falha/latencia de banco ou rede. Execucao interrompida
 com ID conhecido permanece rastreavel no ProviderRun, com custo desconhecido
 null; reconciliacao geral de custos fora do worker ainda esta pendente.
+
+## Custos mensais — endpoint 12
+
+`GET /api/v1/internal/costs?month=2026-11` exige token de serviço
+(`sub=hustleq-main`, `scope=service`). O mês é obrigatório no formato `YYYY-MM`.
+A rota consulta somente ProviderRun, sem chamar a Apify ou modificar dados.
+
+O mês é delimitado por **startedAt em UTC**: início inclusivo, início do mês
+seguinte exclusivo. Uma execução iniciada em novembro e encerrada em dezembro
+pertence a novembro. Todos os status entram na contagem: falhar não implica
+custo zero. Os valores estão em USD, com soma Decimal antes da serialização.
+
+```json
+{
+  "month": "2026-11",
+  "totalUsd": null,
+  "byUser": [
+    { "userId": "usuario-a", "costUsd": 0.1, "runs": 2 },
+    { "userId": "usuario-b", "costUsd": null, "runs": 1 }
+  ],
+  "byTrigger": [
+    { "trigger": "initial", "costUsd": 0.1, "runs": 2 },
+    { "trigger": "search", "costUsd": null, "runs": 1 }
+  ],
+  "unattributedUsd": 0
+}
+```
+
+Por decisão confirmada, totalUsd/costUsd/unattributedUsd aceitam **null** quando
+há custo desconhecido no conjunto correspondente. A contagem runs inclui todas
+as execuções, mesmo com custo null. Os grupos completos continuam numéricos.
+Custo zero conhecido permanece 0. Mês sem registros retorna totalUsd 0,
+unattributedUsd 0 e listas vazias. Execuções sem userId entram em unattributedUsd
+e em byTrigger, sem criar um usuário fictício em byUser.
+
+O relatório é do ledger existente, não uma consulta à fatura da Apify. A cobertura
+está nos fluxos já rastreados (busca GET, convites, inclusão de concorrentes e
+worker Initial); a instrumentação dos fluxos legados e a conciliação de execuções
+incertas ainda estão pendentes. Valores de meses anteriores podem mudar quando
+um custo desconhecido for preenchido. Não há estimativa nem conversão cambial.
+
+Query inválida retorna 400; token inválido/expirado, 401; token de usuário, 403.
+Falhas de banco ou valores fora da precisão suportada retornam 500 sanitizado.
+A resposta usa Cache-Control private, no-store e o contrato aparece no Swagger.

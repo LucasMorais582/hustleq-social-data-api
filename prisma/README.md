@@ -390,3 +390,20 @@ RUN_DATABASE_TESTS=true npx vitest run tests/instagram-profile-reservation.integ
 Usa schema temporario proprio, preserva o custo do lookup quando a reserva falha
 e confirma a limpeza do schema ao finalizar. Nao executa Actors pagos nem altera
 registros de public. Contrato e limites estao detalhados no README principal.
+
+## Custos mensais do ProviderRun
+
+O endpoint 12 agrega ProviderRun por userId/trigger em uma consulta, filtrando
+startedAt pelo mês UTC. Não precisa de migration nem regrava custos históricos.
+Custos desconhecidos ficam null nos totais afetados; todos os status contam.
+
+Teste PostgreSQL com schema temporário e dados de custo simulados:
+
+```bash
+RUN_DATABASE_TESTS=true npx vitest run tests/instagram-costs.integration.test.ts
+```
+
+Verifica limites UTC inclusivo/exclusivo, somas Decimal, execução iniciada em um
+mês e terminada em outro, falhas com custo, custos null, execução sem userId e
+leitura sem alteração das linhas. Remove e verifica a ausência do schema ao fim.
+Não executa Actors nem altera o schema public.

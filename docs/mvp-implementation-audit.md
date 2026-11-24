@@ -36,29 +36,29 @@ e desabilitado por padrao; os endpoints 2 e 14 estao conectados; faltam os demai
 jobs. Ha persistencia,
 normalizacao e guards JWT de usuario/servico. A busca 1 esta implementada;
 leituras 5-7 e 9 usam OWNER/COMPETITOR, e os fluxos internos 2-4/11 estao ligados.
-O inventario soma 12 endpoints implementados e 4 pendentes. Cache,
+O inventario soma 13 endpoints implementados e 3 pendentes. Cache,
 custos completos e demais jobs ainda faltam. As secoes posteriores registram
 as etapas ja concluidas e os limites da validacao.
 
 ## Funcionalidades - acompanhamento atual
 
-| Funcionalidade                     | Situacao                                                     | O que falta                                                  |
-| ---------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------ |
-| Sete tabelas e migrations          | Prontas                                                      | Evolucoes quando necessarias nas proximas etapas             |
-| Fila interna da VPS                | Worker Initial conectado aos endpoints 2 e 14                | Demais executores e deploy do worker                         |
-| IDs string e legado                | Prontos                                                      | Alinhamento externo sobre CUID, que nao e UUID               |
-| JWT de usuario/servico             | Base pronta                                                  | Ligar os guards as demais rotas MVP                          |
-| Normalizacao e fixtures            | Base pronta                                                  | Enriquecimento real pelo Reel Scraper nos jobs               |
-| Persistencia                       | Base pronta                                                  | Integrar os novos fluxos/jobs                                |
-| Previa de perfil                   | Endpoint 1 pronto, lookup compartilhado com convite          | Validar SLA/custo reais e migrar consumidor legado           |
-| Leituras de perfil/posts/historico | Endpoints 5-7 e 9 prontos                                    | Validar com o adaptador do backend principal                 |
-| Convites, reserva e dono           | Endpoints 2, 3 e 4 prontos                                   | Validacao externa com backend principal                      |
-| Concorrentes/Watched               | Endpoints 13–15 e Initial Sync prontos                       | Watched Sync diario e integracao externa                     |
-| Coleta diaria                      | Parcial                                                      | Prazo aplicado; faltam 12 posts/4h, elegibilidade MVP e jobs |
-| Post Refresh e teto de seguranca   | Pendentes                                                    | Endpoints 8/10, deduplicacao, fuso e quota                   |
-| Custos Apify                       | ProviderRun na busca GET, lookup do convite e worker Initial | Demais fluxos, reconciliacao geral, lotes e endpoint 12      |
-| Discover/cache                     | Estrutura/provider prontos                                   | Endpoint 16, cache compartilhado e aquecimento               |
-| Deploy e integracao com backend    | VPS confirmada, deploy pendente                              | Configurar API/worker e validar no ambiente acordado         |
+| Funcionalidade                     | Situacao                                            | O que falta                                                  |
+| ---------------------------------- | --------------------------------------------------- | ------------------------------------------------------------ |
+| Sete tabelas e migrations          | Prontas                                             | Evolucoes quando necessarias nas proximas etapas             |
+| Fila interna da VPS                | Worker Initial conectado aos endpoints 2 e 14       | Demais executores e deploy do worker                         |
+| IDs string e legado                | Prontos                                             | Alinhamento externo sobre CUID, que nao e UUID               |
+| JWT de usuario/servico             | Base pronta                                         | Ligar os guards as demais rotas MVP                          |
+| Normalizacao e fixtures            | Base pronta                                         | Enriquecimento real pelo Reel Scraper nos jobs               |
+| Persistencia                       | Base pronta                                         | Integrar os novos fluxos/jobs                                |
+| Previa de perfil                   | Endpoint 1 pronto, lookup compartilhado com convite | Validar SLA/custo reais e migrar consumidor legado           |
+| Leituras de perfil/posts/historico | Endpoints 5-7 e 9 prontos                           | Validar com o adaptador do backend principal                 |
+| Convites, reserva e dono           | Endpoints 2, 3 e 4 prontos                          | Validacao externa com backend principal                      |
+| Concorrentes/Watched               | Endpoints 13–15 e Initial Sync prontos              | Watched Sync diario e integracao externa                     |
+| Coleta diaria                      | Parcial                                             | Prazo aplicado; faltam 12 posts/4h, elegibilidade MVP e jobs |
+| Post Refresh e teto de seguranca   | Pendentes                                           | Endpoints 8/10, deduplicacao, fuso e quota                   |
+| Custos Apify                       | Endpoint 12 e ledger dos fluxos rastreados prontos  | Demais fluxos, reconciliacao geral e lotes                   |
+| Discover/cache                     | Estrutura/provider prontos                          | Endpoint 16, cache compartilhado e aquecimento               |
+| Deploy e integracao com backend    | VPS confirmada, deploy pendente                     | Configurar API/worker e validar no ambiente acordado         |
 
 ## Inventário dos 16 endpoints
 
@@ -79,7 +79,7 @@ usam `{ response: ... }`; as novas leituras 5-7 retornam objetos diretos como no
 | 9   | GET /instagram/posts/:postId/metrics                            | Pronto nesta etapa                                                          | Validacao externa com o adaptador                                                                                     |
 | 10  | POST /instagram/posts/:postId/refresh                           | Ausente                                                                     | Post salvo, 202, execução durável, deduplicação, teto de segurança e falha sem substituir histórico                   |
 | 11  | PATCH /internal/instagram/profiles/:profileId/monitoring        | Pronto nesta etapa                                                          | Filtro no cron atual pronto; aplicar tambem aos futuros jobs MVP                                                      |
-| 12  | GET /internal/costs                                             | Ausente                                                                     | Agregações mensais de ProviderRun por usuário/trigger e custos não atribuídos                                         |
+| 12  | GET /internal/costs                                             | Pronto: mes UTC, agrupamentos e totais anulaveis                            | Instrumentacao completa do ledger e conciliacao pendentes                                                             |
 | 13  | GET /instagram/profiles/:profileId/competitors                  | Pronto: dono, listagem no envelope existente                                | Validacao externa com o adaptador                                                                                     |
 | 14  | POST /instagram/profiles/:profileId/competitors                 | Pronto: username, regras e Initial Sync atomico                             | Worker habilitado no deploy e validacao externa                                                                       |
 | 15  | DELETE /instagram/profiles/:profileId/competitors/:competitorId | Pronto: ID da relacao, dono, 204, historico preservado                      | Validacao externa; Watched diario ainda pendente                                                                      |
@@ -115,7 +115,7 @@ ownerUserId e atribuido explicitamente pelo endpoint interno 3, nunca por efeito
 | --------------------------- | ------------------------------------------------------------------------------ | ---------------------------------------------------------------- |
 | InstagramProfile            | Identidade e fluxos de reserva/dono/monitoramento; Initial Sync                | Elegibilidade/atualizacao por Daily e Watched                    |
 | InstagramProfileSnapshot    | Contagens anulaveis e collectedAt; intervalo atual de 24h                      | Resolver 20h/24h do guia antes de mudar os jobs                  |
-| InstagramCompetitor         | Relacao, endedAt, historico e limite de tres ativos                            | Adaptar contrato/autorizacao e elegibilidade do Watched Sync     |
+| InstagramCompetitor         | Relacao, endedAt, historico e limite de tres ativos; endpoints 13–15           | Elegibilidade do Watched Sync                                    |
 | InstagramPost               | Conteudo e lastCollectedAt ligados a gravacao de metrica nova                  | Frescor de leitura/on_open no endpoint 8                         |
 | InstagramPostMetricSnapshot | Historico imutavel, likesHidden, source, views BigInt                          | Endpoint 10 e fontes dos novos jobs; legado preserva source null |
 | DiscoverCache               | Modelo e migration aplicados                                                   | Endpoint, chave normalizada, TTL e coordenacao de buscas         |
@@ -136,7 +136,7 @@ ProviderRun e depois criar uma linha nao impede execucoes concorrentes.
 
 | Job                  | Base existente                                                                                | Pendências                                                                                                                               |
 | -------------------- | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| Initial Profile Sync | Worker com 12 posts retornados/Reel Scraper/custos/retomada; endpoint 2 enfileira             | Adaptar endpoint 14, lotes e validar SLA/cobranca reais                                                                                  |
+| Initial Profile Sync | Worker com 12 posts retornados/Reel Scraper/custos/retomada; endpoints 2 e 14 enfileiram      | Lotes e validar SLA/cobranca reais                                                                                                       |
 | Daily Profile Sync   | Cron simples as 6h de Nova York; respeita monitoringUntil e atualiza ate dez posts observados | Passar para 4h após confirmação, elegibilidade dono/monitoringUntil, 12 posts, Reels, lotes, ProviderRun, retry e conclusão antes das 6h |
 | Watched Sync         | Todos os perfis salvos entram no cron atual, inclusive relações encerradas                    | Coletar acompanhados por relações ativas, após Daily, deduplicar perfis compartilhados, custos e tentativas                              |
 | Post Refresh         | Não existe                                                                                    | URL de post salvo, Actor adequado, on_open/refresh, deduplicação, snapshot e lastCollectedAt                                             |
@@ -840,3 +840,36 @@ schema public foi alterado e o transporte da Apify foi mockado. Typecheck, lint,
 format:check e build passaram. Estado: 12 endpoints implementados, nenhum
 parcial e 4 pendentes (8, 10, 12 e 16). Permanecem os jobs/deploy e a validacao
 externa do contrato e dos custos reais.
+
+## Etapa N — custos mensais (endpoint 12)
+
+O usuario definiu mes UTC e preservacao de null quando algum custo estiver
+indisponivel. Isso amplia os campos monetarios numericos do exemplo do guia para
+number | null; o adaptador do backend principal precisa aceitar essa decisao.
+
+GET /api/v1/internal/costs?month=YYYY-MM exige token exato de servico e retorna
+objeto direto, com month, totalUsd, byUser, byTrigger e unattributedUsd. Mes
+obrigatorio/estrito, janela por startedAt UTC [inicio, proximo mes), incluindo
+execucoes running/succeeded/failed. A data de termino nao move uma execucao de mes.
+
+Uma unica consulta groupBy(userId, trigger) no ProviderRun calcula sum e counts,
+e os mesmos grupos alimentam todos os totais. Soma usa Decimal, sem estimativa;
+contagens e valores fora da faixa segura geram erro sanitizado. Total de grupo
+com qualquer costUsd desconhecido vira null, preservando runs. Total geral
+nessa situacao tambem e null; grupos completos permanecem numericos. Sem userId,
+o custo entra em unattributedUsd e byTrigger. Sem registros, totais sao zero e
+listas vazias. Zero conhecido nao vira null.
+
+Nao chama Actors, nao concilia runs, nao atribui donos retroativamente, nao altera
+registros e nao cria tabelas/migrations/configuracoes. Relatorio representa o
+ledger rastreado, que ainda nao cobre todos os fluxos legados. A cobertura e a
+conciliacao geral continuam pendentes; nao equivale a uma fatura completa Apify.
+
+Validacao: 635 testes locais passaram; 7 integracoes opt-in ficam fora de npm
+test. O teste PostgreSQL dedicado passou em cerca de 15 segundos, incluindo
+limites UTC, soma Decimal, todos os status, nulls e preservacao das linhas lidas.
+Schema temporario removido e ausencia confirmada; nenhum Actor real executado e
+nenhuma linha do schema public alterada. Typecheck, lint, format:check e build
+passaram.
+Estado: 13 endpoints implementados, 3 pendentes (8, 10 e 16). Demais jobs,
+conciliacao/cobertura de custos, deploy e integracao externa seguem pendentes.
