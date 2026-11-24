@@ -151,19 +151,22 @@ removidas; `rj2026`, `SãoPaulo` e palavras em outros alfabetos são mantidas.
 A legenda original não é alterada. As hashtags são aparadas, sem o `#` inicial,
 e sem duplicados idênticos.
 
-## Coleta diária (Vercel)
+## Coleta diária — VPS
 
-A rotina de todos os perfis salvos está preparada para a janela das 6h de
-`America/New_York`. Para ativar em produção, configurar `CRON_SECRET` (segredo
-aleatório de pelo menos 32 caracteres, separado do JWT) e
-`INSTAGRAM_REFRESH_ENABLED=true`, e fazer deploy com `vercel.json`.
-Manter `INSTAGRAM_REFRESH_ENABLED=false` no desenvolvimento evita coleta automática.
-A rotina não roda apenas por iniciar `npm run dev`.
+A rota existente `GET /api/cron/instagram-refresh` agora **enfileira** o Daily Sync
+na janela das **4h de America/New_York**, acompanhando o horário de verão. Ela não
+executa Actors durante o HTTP. Exige `Authorization: Bearer SEU_CRON_SECRET`,
+CRON_SECRET configurado e INSTAGRAM_REFRESH_ENABLED=true. O worker separado
+precisa estar ativo para executar as tarefas.
 
-Detalhes de horários, limites do Vercel e da versão simples estão em
-[prisma/README.md](prisma/README.md#etapa-5--rotina-diária-simples-no-vercel).
-Ela atualiza métricas coletadas dos dez posts mais recentes e conserva os snapshots
-anteriores. Não cria User, não grava trends nem adiciona tabela de controle.
+O Daily seleciona somente perfis com ownerUserId e monitoringUntil nulo ou futuro.
+As contas acompanhadas sem dono serão tratadas pelo Watched Sync, ainda pendente.
+Coleta até doze posts próprios retornados por perfil, com métricas de Reels e
+snapshots automáticos separados por pelo menos vinte horas. Lotes nunca misturam
+donos. A configuração completa e os limites estão na seção Daily Sync abaixo.
+Nenhum agendamento foi instalado na VPS nesta etapa; iniciar npm run dev sozinho
+não dispara o cron. As duas expressões Vercel foram alinhadas para 8h/9h UTC por
+compatibilidade, sem fazer deploy ou mudar o destino confirmado (VPS).
 
 ### Contas acompanhadas (concorrentes)
 
@@ -891,3 +894,76 @@ Nenhum agendamento novo foi criado para aquecimento: o backend principal chama
 a mesma rota com token de serviço. Trends/search mantém seu contrato e continua
 sem persistência. Latência, custo e cobertura reais do Actor ainda precisam de
 validação autorizada; os testes desta etapa simulam o transporte Apify.
+
+## Daily Sync — lotes por usuário e intervalo de vinte horas
+
+Decisões confirmadas em 24/11/2026: iniciar às 4h de Nova York, deduplicar snapshots
+automáticos por vinte horas e formar lotes somente por ownerUserId.
+
+```dotenv
+INSTAGRAM_REFRESH_ENABLED=true
+INSTAGRAM_WORKER_ENABLED=true
+INSTAGRAM_DAILY_BATCH_SIZE=5
+```
+
+CRON_SECRET também deve estar configurado. O tamanho do lote aceita 1–10 perfis.
+Desabilitar INSTAGRAM_REFRESH_ENABLED impede novos enqueues pelo cron; os jobs
+ja gravados continuam sob controle do worker e da elegibilidade de monitoramento.
+A rota GET /api/cron/instagram-refresh ignora chamadas fora de 4h00–4h59 em
+America/New_York. Um scheduler da VPS pode chamá-la a cada hora UTC: a própria
+rota faz a seleção da janela local, sem depender do fuso do sistema operacional.
+O agendamento e o deploy continuam pendentes. A meta é concluir antes da leitura
+das 6h do backend principal; isso depende de volume, latência e capacidade dos
+workers e ainda precisa de medição real.
+
+O retorno do cron descreve **enfileiramento**, não coleta concluída: total,
+queued, reused, notDue, failed, pending e failures. Um 200 não comprova que os
+Actors já terminaram. Falha no enqueue ou orçamento de 180s excedido retorna 503
+com o resumo; repetir dentro da janela reaproveita os jobs e continua o restante.
+O histórico impede iniciar outra sequência de três tentativas para o mesmo
+perfil/data local, mesmo se a sequência anterior terminou em falha.
+
+São elegíveis perfis próprios com dono e monitoramento vigente. Owner e prazo
+são revalidados ao enfileirar, ao executar e antes de gravar cada perfil. Perfil
+sincronizado há menos de vinte horas é ignorado. Perfis sem dono e relações de
+concorrência não entram no Daily: o Watched será uma etapa separada. Nenhum
+usuário é inferido do username, e nenhuma tabela User é criada.
+
+Um job DAILY_PROFILE_SYNC registra a lista original e os membros ainda pendentes.
+Essa lista também reserva os membros não primários contra outro Initial/Daily.
+Transações serializáveis e locks por perfil protegem enqueues concorrentes. Se
+um perfil perder o dono, o Daily antigo não bloqueia sua nova reserva/Initial.
+
+O worker usa Profile Scraper com vários usernames do mesmo dono, depois Reel
+Scraper para os Reels dos doze posts próprios mais recentes entre os retornados.
+Posts fixados são ordenados por timestamp; ownerId deve corresponder ao perfil.
+Views não vêm do Profile Scraper. Métricas indisponíveis ficam null, curtidas
+ocultas são preservadas e posts mais antigos não recebem atualização automática.
+Cada execução cria **um** ProviderRun com o custo real conhecido/null e o dono
+do lote. Para lotes com vários perfis, instagramProfileId do run fica null; a
+relação com os membros permanece no payload do job, sem rateio estimado.
+
+Cada perfil é persistido em sua própria transação protegida pelo lease/token do
+job: identidade, posts, snapshots, lastSyncedAt/ready e retirada da lista pendente
+são atômicos. Isso limita o tamanho das transações e preserva perfis já concluídos
+se outro perfil falhar. Uma conta privada ou ausente não impede a gravação das
+outras contas válidas. As falhas individuais ficam registradas no job.
+
+São três tentativas totais, com esperas de um e cinco minutos. Depois disso, os
+perfis ainda pendentes ficam para o dia seguinte, preservando seu status/dados
+anteriores. Retomada de lease não aumenta a tentativa e não refaz perfis já
+concluídos. Runs conhecidos que cobrem os membros restantes são consultados de
+novo; não se repete um POST de início incerto sem apifyRunId. Conteúdo inválido de
+um run sucedido pode permanecer inválido nas releituras e encerrar as tentativas
+sem outra cobrança de Actor. Payload inválido também tem retries limitados.
+
+Snapshots de perfil dos jobs Initial e Daily usam a regra nova de vinte horas.
+O fluxo HTTP legado profile/search mantém seu intervalo padrão anterior de 24h;
+cache Discover e frescor de post continuam em 24h, sem mudança. Snapshots novos
+de métricas do Daily usam source daily. Repetir a execução/reiniciar o worker não
+regrava um membro já concluído. O Daily tem prioridade no ciclo do worker, que
+ainda atende Initial, Post Refresh e Discover.
+
+Os testes usam transporte Apify simulado; custo, cobertura real dos doze posts e
+conclusão antes das 6h ainda dependem de validação autorizada. Nenhuma migration,
+instalação de cron ou execução paga é necessária para estes testes.

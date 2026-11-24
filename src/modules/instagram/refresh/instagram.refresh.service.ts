@@ -1,49 +1,54 @@
 import { findProfilesForInstagramRefresh } from './instagram.refresh.repository.js';
-import { getInstagramProfile } from '../profile/instagram.profile.service.js';
-import { getInstagramRefreshWindowStart } from './instagram.refresh.schedule.js';
-import { ProviderError } from '../../../errors/provider.error.js';
+import { getInstagramRefreshDate } from './instagram.refresh.schedule.js';
+import { enqueueDailyBatch } from '../jobs/instagram.daily.repository.js';
+import { env } from '../../../config/env.js';
 
 export async function runInstagramRefresh(now = new Date(), clock = Date.now) {
-  const windowStart = getInstagramRefreshWindowStart(now);
-  if (!windowStart) return { skipped: true as const, reason: 'OUTSIDE_SCHEDULE' };
+  const date = getInstagramRefreshDate(now);
+  if (!date) return { skipped: true as const, reason: 'OUTSIDE_SCHEDULE' };
   const startedAt = clock();
   const profiles = await findProfilesForInstagramRefresh(now);
   const result = {
     skipped: false as const,
     total: profiles.length,
-    processed: 0,
-    succeeded: 0,
+    queued: 0,
+    reused: 0,
+    notDue: 0,
     failed: 0,
     pending: profiles.length,
-    failures: [] as { instagramId: string; code: string }[],
+    failures: [] as { profileId: string; code: string }[],
   };
+  const owners = new Map<string, string[]>();
   for (const profile of profiles) {
-    // Reserva tempo para uma coleta limitada e sua transação antes do teto de 300s.
-    if (clock() - startedAt >= 180000) break;
-    try {
-      await getInstagramProfile(
-        { username: profile.username },
-        {
-          expectedInstagramId: profile.instagramId,
-          refreshMetricsSince: windowStart,
-        },
-      );
-      result.succeeded++;
-    } catch (error) {
-      const code =
-        error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
-          ? error.code
-          : 'REFRESH_FAILED';
-      result.failures.push({ instagramId: profile.instagramId, code });
-      result.failed++;
-      if (error instanceof ProviderError && error.statusCode === 429) {
-        result.processed++;
-        result.pending = result.total - result.processed;
-        break; // Não continuar consumindo chamadas quando o provedor recusar o lote.
+    if (!profile.ownerUserId) {
+      result.notDue++;
+      continue;
+    }
+    const ids = owners.get(profile.ownerUserId) ?? [];
+    ids.push(profile.id);
+    owners.set(profile.ownerUserId, ids);
+  }
+  for (const [owner, ids] of owners) {
+    for (let offset = 0; offset < ids.length; offset += env.INSTAGRAM_DAILY_BATCH_SIZE) {
+      if (clock() - startedAt >= 180000) {
+        result.pending =
+          result.total - result.queued - result.reused - result.notDue - result.failed;
+        return result;
+      }
+      const batch = ids.slice(offset, offset + env.INSTAGRAM_DAILY_BATCH_SIZE);
+      try {
+        const saved = await enqueueDailyBatch(batch, owner, date);
+        result.queued += saved.queued;
+        result.reused += saved.reused;
+        result.notDue += saved.notDue;
+      } catch {
+        result.failed += batch.length;
+        result.failures.push(
+          ...batch.map((profileId) => ({ profileId, code: 'DAILY_ENQUEUE_FAILED' })),
+        );
       }
     }
-    result.processed++;
-    result.pending = result.total - result.processed;
   }
+  result.pending = result.total - result.queued - result.reused - result.notDue - result.failed;
   return result;
 }

@@ -1,5 +1,6 @@
 import { setTimeout } from 'node:timers/promises';
 import { env } from './config/env.js';
+import { runDailySyncWorkerOnce } from './modules/instagram/jobs/instagram.daily.service.js';
 import { runPostRefreshWorkerOnce } from './modules/instagram/jobs/instagram.post-refresh.service.js';
 import { runDiscoverWorkerOnce } from './modules/instagram/jobs/instagram.discover.service.js';
 import { getPrismaClient } from './provider/database/prisma.client.js';
@@ -24,8 +25,12 @@ async function main() {
     while (!shutdown.signal.aborted) {
       let processed = false;
       try {
+        const daily = await runDailySyncWorkerOnce(client);
+        processed = daily !== null;
+        if (daily) console.info(JSON.stringify({ event: 'daily_sync', ...daily }));
+        if (shutdown.signal.aborted) continue;
         const result = await runInitialSyncWorkerOnce(client);
-        processed = result !== null;
+        processed = processed || result !== null;
         if (result) console.info(JSON.stringify({ event: 'initial_sync', ...result }));
         if (!shutdown.signal.aborted) {
           const postResult = await runPostRefreshWorkerOnce(client);

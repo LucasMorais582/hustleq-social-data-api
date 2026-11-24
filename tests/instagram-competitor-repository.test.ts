@@ -20,6 +20,34 @@ function fixture() {
   return { tx, transaction, client: { $transaction: transaction } as unknown as PrismaClient };
 }
 describe('competitor transactional persistence', () => {
+  it('shares a Daily batch without changing the existing profile status to syncing', async () => {
+    const f = fixture();
+    const tx = {
+      ...f.tx,
+      instagramProfile: {
+        ...f.tx.instagramProfile,
+        findUnique: vi.fn().mockResolvedValue({ ownerUserId: 'owner' }),
+        update: vi.fn(),
+      },
+      providerRun: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      instagramSyncJob: {
+        findUnique: vi.fn().mockResolvedValue(null),
+        findFirst: vi.fn().mockResolvedValue({ id: 'daily', type: 'DAILY_PROFILE_SYNC' }),
+        upsert: vi.fn(),
+      },
+    };
+    const client = {
+      $transaction: (work: (store: typeof tx) => Promise<unknown>) => work(tx),
+    } as unknown as PrismaClient;
+    await withCompetitorTransaction(
+      (store) => store.scheduleInitial('target', 'verified-run', 'caller'),
+      client,
+    );
+    expect(tx.instagramSyncJob.upsert).not.toHaveBeenCalled();
+    expect(tx.instagramProfile.update).not.toHaveBeenCalled();
+    expect(tx.providerRun.updateMany).toHaveBeenCalledTimes(1);
+  });
+
   it('reuses external identity without assigning ownership', async () => {
     const { tx, transaction, client } = fixture();
     const profile = {

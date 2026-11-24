@@ -1,6 +1,7 @@
 import { Prisma, type InstagramCompetitor, type PrismaClient } from '@prisma/client';
 import { getPrismaClient } from '../../../provider/database/prisma.client.js';
 import { ApiError } from '../../../errors/api.error.js';
+import { findActiveProfileSyncJob } from '../jobs/instagram.profile-job.repository.js';
 import { enqueueInstagramSyncJob } from '../jobs/instagram.sync-job.repository.js';
 
 import type { CompetitorIdentity } from './instagram.competitors.schemas.js';
@@ -59,20 +60,24 @@ export async function withCompetitorTransaction<T>(
                 data: { instagramProfileId: profileId },
               });
               if (linked.count !== 1) throw new Error('VERIFIED_PROFILE_RUN_NOT_FOUND');
-              await enqueueInstagramSyncJob(
-                {
-                  type: 'INITIAL_PROFILE_SYNC',
-                  trigger: 'initial',
-                  instagramProfileId: profileId,
-                  userId,
-                  activeKey: `profile:${profileId}`,
-                  payload: {
-                    providerSteps: { profile: [providerRunId] },
-                    providerAttempts: { [providerRunId]: 1 },
+              const activeSync = await findActiveProfileSyncJob(profileId, tx);
+              // Daily preserva o último status no erro; não transformá-lo em Initial/syncing.
+              if (activeSync?.type === 'DAILY_PROFILE_SYNC') return;
+              if (!activeSync)
+                await enqueueInstagramSyncJob(
+                  {
+                    type: 'INITIAL_PROFILE_SYNC',
+                    trigger: 'initial',
+                    instagramProfileId: profileId,
+                    userId,
+                    activeKey: `profile:${profileId}`,
+                    payload: {
+                      providerSteps: { profile: [providerRunId] },
+                      providerAttempts: { [providerRunId]: 1 },
+                    },
                   },
-                },
-                tx,
-              );
+                  tx,
+                );
               await tx.instagramProfile.update({
                 where: { id: profileId },
                 data: { syncStatus: 'syncing' },

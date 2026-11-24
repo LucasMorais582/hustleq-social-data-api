@@ -21,6 +21,7 @@ export interface ProfileCollection {
   collectedAt: Date;
   refreshMetricsSince?: Date;
   metricSource?: 'initial' | 'daily';
+  profileSnapshotMinIntervalHours?: 20 | 24;
   refreshRecentPostsLimit?: 10 | 12;
   posts: {
     instagramPostId: string;
@@ -39,7 +40,6 @@ export interface ProfileCollection {
   }[];
 }
 
-const DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_ATTEMPTS = 3;
 
 export async function saveProfileCollection(
@@ -89,7 +89,8 @@ export async function saveProfileCollectionInTransaction(
   });
   if (
     !latestSnapshot ||
-    collection.collectedAt.getTime() - latestSnapshot.collectedAt.getTime() >= DAY_MS
+    collection.collectedAt.getTime() - latestSnapshot.collectedAt.getTime() >=
+      (collection.profileSnapshotMinIntervalHours ?? 24) * 3600000
   ) {
     await tx.instagramProfileSnapshot.create({
       data: {

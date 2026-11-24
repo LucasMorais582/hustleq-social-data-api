@@ -439,3 +439,27 @@ Teste em schema isolado com HTTP/worker reais e Apify simulada: chamadas de dois
 usuários compartilham busca/custo; aquecimento service usa userId null; três
 falhas preservam cache vencido sem retorná-lo; token de worker antigo não publica
 cache e a retomada mantém a tentativa. O schema é removido e a ausência conferida.
+
+## Daily em lote — etapa de 24/11/2026
+
+Sem migration nova. InstagramSyncJob DAILY_PROFILE_SYNC usa um FK de perfil
+principal e mantém a lista completa/pendente no payload. Não apagar jobs do dia:
+o histórico impede reiniciar mais três tentativas no mesmo perfil/data local.
+Runs compartilhados do lote pertencem a um único ownerUserId, com custo contado
+uma vez. O banco não recebe rateio estimado nem novos usuários.
+
+Snapshots dos jobs Initial/Daily agora respeitam vinte horas (decisão confirmada).
+O legado HTTP mantém seu default anterior de 24h. Cada perfil do lote grava seus
+dados, snapshots e progresso sob uma transação com token/lease válido, preservando
+os sucessos se outro membro falhar. Enqueue por perfil/data e membership ativo
+protegem contra schedulers/Initials concorrentes.
+
+```bash
+RUN_DATABASE_TESTS=true npx vitest run tests/instagram-daily.integration.test.ts
+```
+
+Usa schema isolado, custos/Actors simulados, dois enqueues concorrentes, falha
+parcial, doze posts por membro, autor/pinned, vinte horas, owner, monitoringUntil,
+retomada de lease e reaproveitamento de runs pagos. A execução precisa de conexão
+Supabase disponível. Portas alternativas de diagnóstico nunca alteram o .env.
+Nenhuma tabela de public é usada como fixture.

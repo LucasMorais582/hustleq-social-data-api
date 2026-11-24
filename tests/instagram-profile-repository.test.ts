@@ -61,6 +61,21 @@ function fixture() {
 }
 
 describe('profile collection persistence', () => {
+  it.each([
+    [20 * 3600000 - 1, 0],
+    [20 * 3600000, 1],
+    [23 * 3600000, 1],
+  ])('uses the automatic 20h snapshot interval at age %i', async (age, expected) => {
+    const f = fixture();
+    const input = collection();
+    input.profileSnapshotMinIntervalHours = 20;
+    f.tx.instagramProfileSnapshot.findFirst.mockResolvedValue({
+      collectedAt: new Date(input.collectedAt.getTime() - age),
+    } as never);
+    await saveProfileCollection(input, f.client);
+    expect(f.tx.instagramProfileSnapshot.create).toHaveBeenCalledTimes(expected);
+  });
+
   it('saves identity and first snapshots together without claiming ownership', async () => {
     const { tx, client, transaction } = fixture();
     await saveProfileCollection(collection(), client);

@@ -40,7 +40,10 @@ function fixture() {
       update: vi.fn(),
     },
     providerRun: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
-    instagramSyncJob: { findUnique: vi.fn().mockResolvedValue(null) },
+    instagramSyncJob: {
+      findUnique: vi.fn().mockResolvedValue(null),
+      findFirst: vi.fn().mockResolvedValue(null),
+    },
   };
   const transaction = vi.fn(async (work: (value: typeof tx) => Promise<unknown>) => work(tx));
   return {

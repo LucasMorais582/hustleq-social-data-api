@@ -12,6 +12,7 @@ const m = vi.hoisted(() => ({
   runUpdate: vi.fn(),
   link: vi.fn(),
   jobFind: vi.fn(),
+  jobBatchFind: vi.fn(),
   jobUpsert: vi.fn(),
   gatewayFactory: vi.fn(),
   start: vi.fn(),
@@ -22,7 +23,7 @@ const tx = {
   $queryRaw: m.clock,
   instagramProfile: { findUnique: m.find, upsert: m.upsert, update: m.update },
   providerRun: { updateMany: m.link },
-  instagramSyncJob: { findUnique: m.jobFind, upsert: m.jobUpsert },
+  instagramSyncJob: { findUnique: m.jobFind, findFirst: m.jobBatchFind, upsert: m.jobUpsert },
 };
 vi.mock('../src/provider/database/prisma.client.js', () => ({
   getPrismaClient: () => ({
@@ -65,6 +66,7 @@ beforeEach(() => {
   m.upsert.mockImplementation(async () => profile);
   m.link.mockResolvedValue({ count: 1 });
   m.jobFind.mockResolvedValue(null);
+  m.jobBatchFind.mockResolvedValue(null);
   m.jobUpsert.mockResolvedValue({ id: 'sync-job', status: 'PENDING' });
   m.runCreate.mockResolvedValue({ id: 'verified-run', status: 'running', apifyRunId: null });
   m.runUpdate.mockResolvedValue({});

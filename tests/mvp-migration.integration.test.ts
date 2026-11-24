@@ -89,6 +89,10 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')('MVP migration on Post
             const injected = {
               $transaction: (work: (value: typeof tx) => Promise<unknown>) => work(tx),
             } as unknown as PrismaClient;
+            await tx.instagramProfile.update({
+              where: { id: 'legacy-profile' },
+              data: { ownerUserId: 'scheduler-owner' },
+            });
             const monitoring = await updateInstagramProfileMonitoring(
               'legacy-profile',
               '2026-11-18T12:00:00Z',
@@ -101,7 +105,7 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')('MVP migration on Post
               lastSyncedAt: null,
             });
             expect(await findProfilesForInstagramRefresh(timestamp, tx)).toEqual([
-              { instagramId: 'legacy-ig', username: 'legacy' },
+              { id: 'legacy-profile', ownerUserId: 'scheduler-owner' },
             ]);
             // No instante de vencimento e depois dele, o perfil não é elegível.
             expect(
@@ -117,6 +121,10 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')('MVP migration on Post
             expect(
               await findProfilesForInstagramRefresh(new Date('2026-11-19T12:00:00Z'), tx),
             ).toHaveLength(1);
+            await tx.instagramProfile.update({
+              where: { id: 'legacy-profile' },
+              data: { ownerUserId: null },
+            });
             const post = {
               instagramPostId: 'new-post-ig',
               type: 'photo' as const,

@@ -1,6 +1,7 @@
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { ApiError } from '../../../errors/api.error.js';
 import { getPrismaClient } from '../../../provider/database/prisma.client.js';
+import { findActiveProfileSyncJob } from '../jobs/instagram.profile-job.repository.js';
 import { enqueueInstagramSyncJob } from '../jobs/instagram.sync-job.repository.js';
 import type { ProfileCollection } from './instagram.profile.repository.js';
 
@@ -71,7 +72,7 @@ export async function reserveVerifiedInstagramProfile(
             : Infinity;
           const fresh = profile.syncStatus === 'ready' && age >= 0 && age < 86400000;
           const activeKey = `profile:${profile.id}`;
-          const activeJob = await tx.instagramSyncJob.findUnique({ where: { activeKey } });
+          const activeJob = await findActiveProfileSyncJob(profile.id, tx);
           if (!fresh || activeJob) {
             if (!activeJob) {
               await enqueueInstagramSyncJob(

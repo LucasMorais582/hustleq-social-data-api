@@ -6,8 +6,11 @@ export function findProfilesForInstagramRefresh(
   client: Pick<PrismaClient, 'instagramProfile'> = getPrismaClient(),
 ) {
   return client.instagramProfile.findMany({
-    where: { OR: [{ monitoringUntil: null }, { monitoringUntil: { gt: now } }] },
+    where: {
+      ownerUserId: { not: null },
+      OR: [{ monitoringUntil: null }, { monitoringUntil: { gt: now } }],
+    },
     orderBy: { id: 'asc' },
-    select: { instagramId: true, username: true },
+    select: { id: true, ownerUserId: true },
   });
 }

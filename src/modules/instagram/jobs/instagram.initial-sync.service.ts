@@ -62,6 +62,7 @@ export function initialProfileCollection(
     // Novos posts recebem snapshot neste instante; existentes recebem os dados desta coleta.
     refreshMetricsSince: collectedAt,
     metricSource: 'initial',
+    profileSnapshotMinIntervalHours: 20,
     refreshRecentPostsLimit: 12,
     profile: {
       instagramId: profile.id,
