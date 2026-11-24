@@ -156,7 +156,9 @@ describe('Daily persistence', () => {
     const f = fixture();
     Object.assign(f.profile, { ownerUserId: null });
     expect(await findActiveProfileSyncJob('profile', f.tx as unknown as PrismaClient)).toBeNull();
-    expect(f.tx.instagramSyncJob.findFirst).not.toHaveBeenCalled();
+    expect(f.tx.instagramSyncJob.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ type: 'WATCHED_SYNC' }) }),
+    );
   });
   it('rechecks ownership before Actor input and removes skipped members', async () => {
     const f = fixture();

@@ -9,6 +9,12 @@ const formatter = new Intl.DateTimeFormat('en-US', {
   hourCycle: 'h23',
 });
 
+export function getInstagramLocalDate(now: Date): string {
+  if (!Number.isFinite(now.getTime())) throw new Error('Data inválida para o agendamento');
+  const parts = new Map(formatter.formatToParts(now).map((part) => [part.type, part.value]));
+  return `${parts.get('year')}-${parts.get('month')}-${parts.get('day')}`;
+}
+
 // Vercel Cron usa UTC. O disparo das 8h ou 9h UTC só pode iniciar a
 // coleta quando o relógio local de Nova York estiver na janela das 4h.
 // A janela inteira admite os atrasos de até uma hora do plano Hobby.
@@ -16,7 +22,7 @@ export function getInstagramRefreshDate(now: Date): string | null {
   if (!Number.isFinite(now.getTime())) throw new Error('Data inválida para o agendamento');
   const parts = new Map(formatter.formatToParts(now).map((part) => [part.type, part.value]));
   if (parts.get('hour') !== '04') return null;
-  return `${parts.get('year')}-${parts.get('month')}-${parts.get('day')}`;
+  return getInstagramLocalDate(now);
 }
 
 export function getInstagramRefreshWindowStart(now: Date): Date | null {

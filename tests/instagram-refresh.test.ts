@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-const m = vi.hoisted(() => ({ find: vi.fn(), enqueue: vi.fn() }));
+const m = vi.hoisted(() => ({ find: vi.fn(), enqueue: vi.fn(), watched: vi.fn() }));
+vi.mock('../src/modules/instagram/refresh/instagram.watched-schedule.service.js', () => ({
+  scheduleWatchedSync: m.watched,
+}));
 vi.mock('../src/modules/instagram/refresh/instagram.refresh.repository.js', () => ({
   findProfilesForInstagramRefresh: m.find,
 }));
@@ -14,6 +17,15 @@ beforeEach(() => {
   vi.resetAllMocks();
   env.INSTAGRAM_DAILY_BATCH_SIZE = 2;
   m.find.mockResolvedValue([]);
+  m.watched.mockResolvedValue({
+    total: 0,
+    queued: 0,
+    reused: 0,
+    notDue: 0,
+    failed: 0,
+    pending: 0,
+    failures: [],
+  });
   m.enqueue.mockImplementation(async (ids: string[]) => ({
     queued: ids.length,
     reused: 0,
@@ -30,6 +42,7 @@ describe('Daily scheduler', () => {
       skipped: true,
     });
     expect(m.find).not.toHaveBeenCalled();
+    expect(m.watched).not.toHaveBeenCalled();
   });
   it('groups and chunks profiles by owner without executing Actors', async () => {
     m.find.mockResolvedValue([
@@ -84,11 +97,17 @@ describe('Daily scheduler', () => {
       failures: [{ profileId: 'a', code: 'DAILY_ENQUEUE_FAILED' }],
     });
     expect(JSON.stringify(result)).not.toContain('sensitive');
+    expect(m.watched).not.toHaveBeenCalled();
   });
   it('stops enqueueing when the request budget is exhausted; next invocation can resume', async () => {
     m.find.mockResolvedValue([{ id: 'a', ownerUserId: 'owner' }]);
     const clock = vi.fn().mockReturnValueOnce(0).mockReturnValue(180000);
     expect(await runInstagramRefresh(now, clock)).toMatchObject({ queued: 0, pending: 1 });
     expect(m.enqueue).not.toHaveBeenCalled();
+    expect(m.watched).not.toHaveBeenCalled();
+  });
+  it('schedules Watched after all Daily enqueues, sharing the request budget', async () => {
+    await runInstagramRefresh(now, () => 123);
+    expect(m.watched).toHaveBeenCalledWith('2026-11-24', 123, expect.any(Function));
   });
 });

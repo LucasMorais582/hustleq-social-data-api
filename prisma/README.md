@@ -463,3 +463,25 @@ parcial, doze posts por membro, autor/pinned, vinte horas, owner, monitoringUnti
 retomada de lease e reaproveitamento de runs pagos. A execução precisa de conexão
 Supabase disponível. Portas alternativas de diagnóstico nunca alteram o .env.
 Nenhuma tabela de public é usada como fixture.
+
+## Watched em lote — etapa R
+
+Sem migration nova. WATCHED_SYNC usa a mesma fila duravel com membership/progresso
+no payload `watched`, FK principal e activeKey liberada ao terminar. Perfis sem
+dono podem ser acompanhados; elegibilidade vem das relacoes ativas e de
+ownerUserId/monitoringUntil do perfil monitorador. Dados/snapshots e progresso de
+cada membro sao gravados atomicamente com token/lease valido.
+
+Custos de um alvo compartilhado por usuarios distintos ficam em um ProviderRun
+por Actor com userId null. Nao apagar jobs/ledger do dia: o historico impede
+reabrir tentativas adicionais apos Daily/Watched falharem. O executor revalida
+fontes e evita nova coleta se o Daily ja tentou o alvo na data de Nova York.
+
+```bash
+RUN_DATABASE_TESTS=true npx vitest run tests/instagram-watched.integration.test.ts
+```
+
+O teste usa schema isolado, transporte simulado, enqueues concorrentes, alvos
+compartilhados, fontes encerradas/pausadas/sem dono, custos unicos, doze posts,
+barreira Daily, tentativa Daily falha e retomada de lease. Remove o schema ao
+final; nao usa linhas de public como fixtures nem chama Actors reais.

@@ -62,7 +62,8 @@ export async function withCompetitorTransaction<T>(
               if (linked.count !== 1) throw new Error('VERIFIED_PROFILE_RUN_NOT_FOUND');
               const activeSync = await findActiveProfileSyncJob(profileId, tx);
               // Daily preserva o último status no erro; não transformá-lo em Initial/syncing.
-              if (activeSync?.type === 'DAILY_PROFILE_SYNC') return;
+              if (activeSync?.type === 'DAILY_PROFILE_SYNC' || activeSync?.type === 'WATCHED_SYNC')
+                return;
               if (!activeSync)
                 await enqueueInstagramSyncJob(
                   {

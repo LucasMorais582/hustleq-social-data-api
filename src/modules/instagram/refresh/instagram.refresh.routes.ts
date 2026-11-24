@@ -32,7 +32,14 @@ export async function instagramRefreshRoutes(app: FastifyInstance) {
       running = true;
       try {
         const result = await runInstagramRefresh();
-        if (!result.skipped && (result.failed > 0 || result.pending > 0)) {
+        if (
+          !result.skipped &&
+          (result.failed > 0 ||
+            result.pending > 0 ||
+            ('watched' in result &&
+              result.watched &&
+              (result.watched.failed > 0 || result.watched.pending > 0)))
+        ) {
           app.log.warn(result, 'Instagram daily refresh incomplete');
           return reply.status(503).send({ code: 'REFRESH_INCOMPLETE', ...result });
         }

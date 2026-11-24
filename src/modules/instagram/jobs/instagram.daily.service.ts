@@ -26,12 +26,21 @@ import {
 import { normalizeInstagramPost } from '../shared/instagram.post.normalize.js';
 
 const LEASE_MS = 600000;
-export async function processDailySync(
+type ProfileBatchStore = {
+  kind: 'daily' | 'watched';
+  read: typeof readDailyTargets;
+  prepare: typeof prepareDailyRun;
+  commit: typeof commitDailyProfile;
+  finish: typeof finishDailyAttempt;
+};
+export async function processProfileBatchSync(
   job: InstagramSyncJob,
   client: PrismaClient = getPrismaClient(),
-  gateway?: TrackedRunGateway,
+  gateway: TrackedRunGateway | undefined,
+  store: ProfileBatchStore,
 ) {
-  if (job.type !== 'DAILY_PROFILE_SYNC' || !job.lockToken) throw new Error('INVALID_DAILY_JOB');
+  const expectedType = store.kind === 'daily' ? 'DAILY_PROFILE_SYNC' : 'WATCHED_SYNC';
+  if (job.type !== expectedType || !job.lockToken) throw new Error('INVALID_DAILY_JOB');
   const owner = { id: job.id, lockToken: job.lockToken };
   const heartbeat = async () => {
     if (!(await renewInstagramSyncJobLease(owner, LEASE_MS, client)))
@@ -40,7 +49,7 @@ export async function processDailySync(
   const failures: Record<string, string> = {};
   try {
     await heartbeat();
-    const targets = await readDailyTargets(owner, client);
+    const targets = await store.read(owner, client);
     let transport: TrackedRunGateway;
     const execute = (
       step: 'profile' | 'reels',
@@ -52,7 +61,7 @@ export async function processDailySync(
         actor,
         input,
         {
-          prepare: () => prepareDailyRun(owner, step, actor, ids, client),
+          prepare: () => store.prepare(owner, step, actor, ids, client),
           update: (id, data) => client.providerRun.update({ where: { id }, data }),
         },
         heartbeat,
@@ -144,7 +153,7 @@ export async function processDailySync(
           byOwner.get(entry.target.instagramId) ?? [],
           new Date(),
         );
-        await commitDailyProfile(
+        await store.commit(
           owner,
           entry.target.id,
           { ...collection, metricSource: 'daily', profileSnapshotMinIntervalHours: 20 },
@@ -152,7 +161,7 @@ export async function processDailySync(
         );
       }
     }
-    const result = await finishDailyAttempt(owner, failures, undefined, client);
+    const result = await store.finish(owner, failures, undefined, client);
     return {
       status:
         result.status === 'SUCCEEDED'
@@ -166,10 +175,13 @@ export async function processDailySync(
   } catch (error) {
     if (error instanceof SyncJobOwnershipLost) return { status: 'lost' as const, jobId: job.id };
     try {
-      const result = await finishDailyAttempt(
+      const result = await store.finish(
         owner,
         failures,
-        initialSyncErrorCode(error, 'DAILY_SYNC_FAILED'),
+        initialSyncErrorCode(
+          error,
+          store.kind === 'daily' ? 'DAILY_SYNC_FAILED' : 'WATCHED_SYNC_FAILED',
+        ),
         client,
       );
       return {
@@ -188,6 +200,19 @@ export async function processDailySync(
       throw failure;
     }
   }
+}
+export function processDailySync(
+  job: InstagramSyncJob,
+  client: PrismaClient = getPrismaClient(),
+  gateway?: TrackedRunGateway,
+) {
+  return processProfileBatchSync(job, client, gateway, {
+    kind: 'daily',
+    read: readDailyTargets,
+    prepare: prepareDailyRun,
+    commit: commitDailyProfile,
+    finish: finishDailyAttempt,
+  });
 }
 export async function runDailySyncWorkerOnce(
   client: PrismaClient = getPrismaClient(),

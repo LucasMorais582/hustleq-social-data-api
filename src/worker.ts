@@ -1,5 +1,6 @@
 import { setTimeout } from 'node:timers/promises';
 import { env } from './config/env.js';
+import { runWatchedSyncWorkerOnce } from './modules/instagram/jobs/instagram.watched.service.js';
 import { runDailySyncWorkerOnce } from './modules/instagram/jobs/instagram.daily.service.js';
 import { runPostRefreshWorkerOnce } from './modules/instagram/jobs/instagram.post-refresh.service.js';
 import { runDiscoverWorkerOnce } from './modules/instagram/jobs/instagram.discover.service.js';
@@ -28,6 +29,10 @@ async function main() {
         const daily = await runDailySyncWorkerOnce(client);
         processed = daily !== null;
         if (daily) console.info(JSON.stringify({ event: 'daily_sync', ...daily }));
+        if (shutdown.signal.aborted) continue;
+        const watched = await runWatchedSyncWorkerOnce(client);
+        processed = processed || watched !== null;
+        if (watched) console.info(JSON.stringify({ event: 'watched_sync', ...watched }));
         if (shutdown.signal.aborted) continue;
         const result = await runInitialSyncWorkerOnce(client);
         processed = processed || result !== null;

@@ -29,6 +29,7 @@ export async function withOwnedSync<T>(
     | 'INITIAL_PROFILE_SYNC'
     | 'POST_REFRESH'
     | 'DISCOVER_SEARCH'
+    | 'WATCHED_SYNC'
     | 'DAILY_PROFILE_SYNC' = 'INITIAL_PROFILE_SYNC',
 ) {
   for (let attempt = 1; ; attempt++) {

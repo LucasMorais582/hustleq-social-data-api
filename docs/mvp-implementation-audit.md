@@ -24,41 +24,28 @@ pendências; não representa autorização para implementar todas elas de uma ve
 
 ## Resultado da comparação
 
-Há uma base funcional de coleta e persistência, não a entrega completa dos
-16 endpoints do guia. Nenhum item deve ser considerado integralmente compatível
-apenas por ter uma rota parecida: faltam contratos, autorização ou jobs.
-
-Situacao atualizada em 23/11/2026: as oito tabelas (sete do guia e a fila
-InstagramSyncJob autorizada pelo usuario) estao modeladas e suas migrations
-foram aplicadas ao Supabase de desenvolvimento. As operacoes atomicas da fila
-e os executores Initial Profile Sync, Post Refresh e Discover Search estao implementados. O worker
-inicia separado e desabilitado por padrao; os endpoints 2, 8, 10 e 14 estao
-conectados. Watched ainda falta; Daily foi implementado na etapa Q. Ha persistencia, normalizacao e
-guards JWT de usuario/servico. A busca 1 esta implementada;
-leituras 5-7 e 9 usam OWNER/COMPETITOR, e os fluxos internos 2-4/11 estao ligados.
-O inventario soma 16 endpoints implementados; nenhum endpoint ausente. Cache,
-custos completos e demais jobs ainda faltam. As secoes posteriores registram
-as etapas ja concluidas e os limites da validacao.
+Situacao atualizada em 24/11/2026: os 16 endpoints estao implementados no
+codigo, assim como os cinco executores (Initial, Daily, Watched, Post Refresh e
+Discover). As oito tabelas (sete do guia e a fila InstagramSyncJob autorizada)
+estao modeladas, com migrations aplicadas no Supabase de desenvolvimento.
+Isso ainda nao equivale a integracao/deploy concluido: faltam validar os Actors,
+o adaptador do backend, custos/SLA reais e a operacao na VPS.
 
 ## Funcionalidades - acompanhamento atual
 
-| Funcionalidade                     | Situacao                                                                    | O que falta                                            |
-| ---------------------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------ |
-| Sete tabelas e migrations          | Prontas                                                                     | Evolucoes quando necessarias nas proximas etapas       |
-| Fila interna da VPS                | Worker Initial/Post Refresh conectado aos endpoints 2/8/10/14               | Demais executores e deploy do worker                   |
-| IDs string e legado                | Prontos                                                                     | Alinhamento externo sobre CUID, que nao e UUID         |
-| JWT de usuario/servico             | Base pronta                                                                 | Ligar os guards as demais rotas MVP                    |
-| Normalizacao e fixtures            | Base pronta                                                                 | Enriquecimento real pelo Reel Scraper nos jobs         |
-| Persistencia                       | Base pronta                                                                 | Integrar os novos fluxos/jobs                          |
-| Previa de perfil                   | Endpoint 1 pronto, lookup compartilhado com convite                         | Validar SLA/custo reais e migrar consumidor legado     |
-| Leituras de perfil/posts/historico | Endpoints 5-7 e 9 prontos                                                   | Validar com o adaptador do backend principal           |
-| Convites, reserva e dono           | Endpoints 2, 3 e 4 prontos                                                  | Validacao externa com backend principal                |
-| Concorrentes/Watched               | Endpoints 13–15 e Initial Sync prontos                                      | Watched Sync diario e integracao externa               |
-| Coleta diaria                      | Daily implementado na etapa Q; Watched pendente                             | Banco/testes externos, Watched e deploy                |
-| Post Refresh                       | Executor duravel ligado aos endpoints 8/10; source, custos, retries e lease | Benchmark real dos Actors, deploy e integracao externa |
-| Custos Apify                       | Endpoint 12 e ledger dos fluxos rastreados prontos                          | Demais fluxos, reconciliacao geral e lotes             |
-| Discover/cache                     | Endpoint 16 e executor prontos; cache compartilhado 24h                     | Deploy, aquecimento pelo backend e validacao real      |
-| Deploy e integracao com backend    | VPS confirmada, deploy pendente                                             | Configurar API/worker e validar no ambiente acordado   |
+| Funcionalidade                          | Situacao                                          | O que falta                                  |
+| --------------------------------------- | ------------------------------------------------- | -------------------------------------------- |
+| Tabelas, IDs String e migrations        | Prontas no desenvolvimento                        | Alinhar CUID com o consumidor                |
+| JWT, OWNER/COMPETITOR e token service   | Prontos nas rotas MVP                             | Integracao externa                           |
+| Convites, reserva, dono e monitoramento | Endpoints 1–5/11 implementados                    | Validacao externa de contrato/SLA            |
+| Leituras de posts e historico           | Endpoints 6–9 implementados                       | Validar adaptador                            |
+| Fila duravel e cinco executores         | Implementados                                     | Operacao API/worker/scheduler na VPS         |
+| Coleta diaria propria e acompanhada     | Daily (Q) e Watched (R), 12 posts e intervalo 20h | Actors/SLA/custo reais                       |
+| Contas acompanhadas                     | Endpoints 13–15 e sincronizacao implementados     | Integracao externa                           |
+| Post Refresh                            | Fila, retries, deduplicacao e teto UTC            | Benchmark dos Actors e deploy                |
+| Custos Apify                            | Endpoint 12 e ledger dos fluxos MVP rastreados    | Cobertura legada e conciliacao geral         |
+| Discover                                | Endpoint 16, cache 24h e executor                 | Aquecimento pelo backend e validacao externa |
+| Deploy e integracao                     | VPS confirmada                                    | Configurar e validar com o backend principal |
 
 ## Inventário dos 16 endpoints
 
@@ -78,11 +65,11 @@ usam `{ response: ... }`; as novas leituras 5-7 retornam objetos diretos como no
 | 8   | GET /instagram/posts/:postId                                    | Pronto: 200/202, frescor 24h e on_open duravel                         | Validacao externa e worker no deploy                                   |
 | 9   | GET /instagram/posts/:postId/metrics                            | Pronto nesta etapa                                                     | Validacao externa com o adaptador                                      |
 | 10  | POST /instagram/posts/:postId/refresh                           | Pronto: fila, deduplicacao, teto diario UTC e snapshot                 | Validacao externa e worker no deploy                                   |
-| 11  | PATCH /internal/instagram/profiles/:profileId/monitoring        | Pronto nesta etapa                                                     | Filtro no cron atual pronto; aplicar tambem aos futuros jobs MVP       |
+| 11  | PATCH /internal/instagram/profiles/:profileId/monitoring        | Pronto nesta etapa                                                     | Elegibilidade aplicada a Daily e Watched; validar integracao externa   |
 | 12  | GET /internal/costs                                             | Pronto: mes UTC, agrupamentos e totais anulaveis                       | Instrumentacao completa do ledger e conciliacao pendentes              |
 | 13  | GET /instagram/profiles/:profileId/competitors                  | Pronto: dono, listagem no envelope existente                           | Validacao externa com o adaptador                                      |
 | 14  | POST /instagram/profiles/:profileId/competitors                 | Pronto: username, regras e Initial Sync atomico                        | Worker habilitado no deploy e validacao externa                        |
-| 15  | DELETE /instagram/profiles/:profileId/competitors/:competitorId | Pronto: ID da relacao, dono, 204, historico preservado                 | Validacao externa; Watched diario ainda pendente                       |
+| 15  | DELETE /instagram/profiles/:profileId/competitors/:competitorId | Pronto: ID da relacao, dono, 204, historico preservado                 | Validacao externa; Watched diario implementado na etapa R              |
 | 16  | GET /instagram/discover                                         | Pronto: nicho/cidade/query, cache 24h, 200 aguardando worker e custos  | Validacao externa, timeout do backend/proxy e aquecimento pelo backend |
 
 O usuario aprovou na etapa M substituir o comprovante de confirmacao por body
@@ -107,17 +94,17 @@ ownerUserId e atribuido explicitamente pelo endpoint interno 3, nunca por efeito
 - Search inexistente continua 404 no legado; o GET novo do endpoint 1 usa 200
   com ownershipStatus=not_found. Perfil privado preserva 404 PROFILE_PRIVATE,
   conforme o contrato ja aprovado. Falha operacional nunca vira inexistente.
-- Aquecimento Discover e jobs com token de servico continuam pendentes.
+- Discover aceita aquecimento com token service; o agendamento desse aquecimento pertence ao backend principal.
 
 ## Banco - oito tabelas aplicadas ao desenvolvimento
 
 | Tabela                      | Estado atual                                                                   | Pendente                                                     |
 | --------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------ |
-| InstagramProfile            | Identidade e fluxos de reserva/dono/monitoramento; Initial Sync                | Elegibilidade/atualizacao por Daily e Watched                |
+| InstagramProfile            | Identidade e fluxos de reserva/dono/monitoramento; Initial Sync                | Elegibilidade/atualizacao Daily e Watched implementadas      |
 | InstagramProfileSnapshot    | Jobs Initial/Daily com intervalo minimo de 20h; legado HTTP 24h                | Validacao externa e historico diario em producao             |
-| InstagramCompetitor         | Relacao, endedAt, historico e limite de tres ativos; endpoints 13–15           | Elegibilidade do Watched Sync                                |
-| InstagramPost               | Conteudo, lastCollectedAt e frescor 200/202 nos endpoints 6/8                  | Daily/Watched ainda pendentes                                |
-| InstagramPostMetricSnapshot | Historico imutavel; source initial/on_open/refresh, views BigInt e likesHidden | Daily/Watched e validacao real                               |
+| InstagramCompetitor         | Relacao, endedAt, historico e limite de tres ativos; endpoints 13–15           | Watched Sync implementado; validar integracao externa        |
+| InstagramPost               | Conteudo, lastCollectedAt e frescor 200/202 nos endpoints 6/8                  | Daily/Watched implementados; validar Actors reais            |
+| InstagramPostMetricSnapshot | Historico imutavel; source initial/on_open/refresh, views BigInt e likesHidden | source daily nos jobs; validacao real pendente               |
 | DiscoverCache               | Endpoint, chave normalizada, TTL 24h e coordenacao de buscas                   | Validacao externa e operacao no deploy                       |
 | ProviderRun                 | Registrado pelo worker Initial com custo conhecido/null e referencia por etapa | Demais fluxos, lotes, custos e conciliacao de inicio incerto |
 | InstagramSyncJob            | Fila e worker Initial com retomada de lease e ids Apify persistidos            | Enqueue pelos endpoints MVP e demais executores              |
@@ -134,37 +121,25 @@ ProviderRun e depois criar uma linha nao impede execucoes concorrentes.
 
 ## Jobs: base atual e lacunas
 
-| Job                  | Base existente                                                                           | Pendências                                                                                                  |
-| -------------------- | ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| Initial Profile Sync | Worker com 12 posts retornados/Reel Scraper/custos/retomada; endpoints 2 e 14 enfileiram | Lotes e validar SLA/cobranca reais                                                                          |
-| Daily Profile Sync   | Cron enfileira às 4h NY; lotes por dono, 12 posts, Reel Scraper, 20h, custos e retries   | Validacao PostgreSQL em schema isolado passou; faltam custo/SLA reais e deploy                              |
-| Watched Sync         | Todos os perfis salvos entram no cron atual, inclusive relações encerradas               | Coletar acompanhados por relações ativas, após Daily, deduplicar perfis compartilhados, custos e tentativas |
-| Post Refresh         | Executor duravel ligado aos endpoints 8/10; source, custos, retries e lease              | Benchmark real dos Actors, deploy e integracao externa                                                      |
-| Discover Search      | Worker Seemu, 50 posts/30 dias, cache, fromCache, custos, retries e fencing              | Validacao real, deploy e aquecimento pelo backend                                                           |
+| Job                  | Base existente                                                                           | Pendências                                                                     |
+| -------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Initial Profile Sync | Worker com 12 posts retornados/Reel Scraper/custos/retomada; endpoints 2 e 14 enfileiram | Lotes e validar SLA/cobranca reais                                             |
+| Daily Profile Sync   | Cron enfileira às 4h NY; lotes por dono, 12 posts, Reel Scraper, 20h, custos e retries   | Validacao PostgreSQL em schema isolado passou; faltam custo/SLA reais e deploy |
+| Watched Sync         | Etapa R: relacoes ativas elegiveis, depois do Daily, lotes por atribuicao, 20h e retries | Validacao de Actors/SLA/custo reais e deploy                                   |
+| Post Refresh         | Executor duravel ligado aos endpoints 8/10; source, custos, retries e lease              | Benchmark real dos Actors, deploy e integracao externa                         |
+| Discover Search      | Worker Seemu, 50 posts/30 dias, cache, fromCache, custos, retries e fencing              | Validacao real, deploy e aquecimento pelo backend                              |
 
-O cron atual roda dentro da requisição, sequencialmente, com trava somente no
-processo e orçamento de 180s para iniciar coletas, maxDuration 300s. Não há fila,
-callback, retomada durável nem retry de Actor em 1/5/15min. Os retries de
-transação Prisma existentes **não são retries dos jobs**.
+Estado atual: API e worker sao processos separados na VPS, com tarefas
+persistidas no PostgreSQL e fencing de lease/token. O cron apenas enfileira,
+com trava local auxiliar e transacoes serializaveis para concorrencia entre
+processos. Os jobs tem tres tentativas totais (esperas de 1/5min) e retomada de
+runs conhecidos. Nao ha Promise solta executando Actor depois do HTTP.
 
-Antes de criar execução assíncrona, decidir infraestrutura compatível com o
-deploy: não responder 202 e deixar uma Promise solta ou um setTimeout esperando
-minutos em uma função serverless. A VPS foi confirmada; o worker ainda sera implementado.
-O guia menciona backend principal no Railway; isso não confirma o local de
-hospedagem desta API, anteriormente planejada para Vercel.
-
-Atualizacao em 23/11/2026: o usuario confirmou VPS para esta API. Planejar API e
-worker como processos separados, com tarefas persistidas no PostgreSQL para
-retomada apos reinicios. O usuario autorizou explicitamente a oitava tabela
-InstagramSyncJob, mantendo ProviderRun exclusivamente para execucoes reais dos
-Actors e custos. A migration foi commitada e aplicada ao desenvolvimento na etapa I; as operacoes
-atomicas da fila estao prontas. O worker ainda sera implementado. O cron
-legado nao foi substituido e nenhuma VPS foi acessada ou configurada.
-
-O guia manda iniciar às 4h e terminar antes da leitura das 6h, enquanto a decisão
-anterior do usuário era iniciar às 6h. Também diz “no máximo um snapshot em 24h”
-e, nas regras comuns, deduplicação por 20h. Resolver ambos antes de alterar o cron.
-Decisao de 23/11: tres tentativas no total, com esperas de 1 e 5 minutos; nao ha quarta tentativa apos 15 minutos.
+Decisoes confirmadas: iniciar o Daily as 4h America/New_York e usar intervalo
+minimo de vinte horas para snapshots automaticos Initial/Daily/Watched; legado
+HTTP continua com 24h. Watched espera o Daily, inclusive retries futuros. A meta
+de terminar antes das 6h ainda exige medicao real. Nenhum deploy ou agendamento
+foi instalado na VPS. O backend principal no Railway e um servico separado.
 
 ## Refresh manual: decisoes confirmadas na etapa O
 
@@ -1031,3 +1006,65 @@ continuam cobertos. A configuracao de conexao da aplicacao nao foi alterada.
 Endpoints permanecem 16 implementados. Restam Watched, cobertura/conciliação de
 custos dos fluxos legados, validacao real de Actors/SLA, integracao com backend e
 deploy/configuracao da VPS.
+
+## Etapa R — Watched Sync apos o Daily
+
+Regras aprovadas em 24/11/2026: so relacoes ativas cujos perfis monitoradores
+possuam ownerUserId e monitoringUntil nulo/futuro. A elegibilidade vem do
+monitorador, nao do alvo: um alvo sem dono ou com seu antigo prazo encerrado
+continua elegivel se houver monitorador valido. Um alvo compartilhado e coletado
+uma vez. Um usuario distinto elegivel: ProviderRun.userId dele; varios usuarios:
+userId null, custo uma vez em unattributedUsd, sem rateio inventado. Varios
+perfis monitoradores do mesmo usuario contam como um usuario.
+
+Cron existente enfileira Daily primeiro e, se nao houver falha/pendencia de
+enqueue, Watched. Mesmo orcamento de 180s; resumo adicional watched; 503 se
+qualquer enqueue ficar incompleto. Usa INSTAGRAM_DAILY_BATCH_SIZE (1–10, default
+5), agrupando por atribuicao de custo, com grupo separado para null. Nenhuma
+rota, tabela ou migration adicional. Worker separado atende Watched apenas apos
+nao haver Daily PENDING/RUNNING, inclusive retries agendados. Jobs Daily antigos
+na fila tambem precisam terminar para liberar essa barreira.
+
+Enqueue serializavel/locks por alvo, membership dos membros secundarios e
+lastSyncedAt de 20h impedem coletas concorrentes/repetidas. Revalidacao antes do
+Actor e antes de salvar respeita relacoes encerradas, monitoramento e dono do
+monitorador. A reserva ativa nao e liberada apenas por mudar o pagador: isso
+evita outro lote concorrente enquanto o primeiro Actor pode estar rodando.
+Mesmo que um membro seja descartado depois, a tentativa paga ja registrada
+impede reabrir outra sequencia naquele dia. Reusar Watched no cadastro nao
+deixa o perfil preso em syncing.
+Mudanca da atribuicao antes da execucao remove o membro do lote antigo, sem
+cobrar outro usuario; um cron posterior pode inclui-lo no grupo correto. Depois
+que um Actor iniciou, a atribuicao daquela execucao fica preservada, nao e
+recalculada retroativamente. Se todas as relacoes terminarem, a resposta do
+Actor nao e persistida como uma nova coleta; o historico anterior permanece.
+
+Se o Daily ja preparou/tentou o Actor de perfil ou concluiu o alvo na mesma data
+NY, Watched nao abre nova sequencia, inclusive depois de falha Daily. Apenas
+reservar e descartar um Daily sem Actor nao conta como tentativa. Watched pode
+ficar enfileirado atras de um Daily ainda nao tentado; o worker espera a barreira
+e decide depois se deve coletar ou descartar, sem abrir outro Actor. Jobs atrasados
+tambem consultam a data NY atual, alem da data planejada. Preparar um run conta
+conservadoramente como tentativa mesmo se o processo cair antes de confirmar o
+POST. Uma falha terminal Watched tambem impede nova sequencia naquele dia.
+
+O pipeline de coleta e compartilhado com Daily: perfil e doze posts proprios
+mais recentes, Reel Scraper para views, normalizacao existente, fonte de metricas
+source daily e ProviderRun.trigger watched. Perfil e snapshots/progresso sao
+atomicos por membro sob lease/token. Dados desconhecidos ficam null; nao ha
+remocao de historico. Tres tentativas totais com esperas 1/5min; sucessos parciais
+preservados, runs conhecidos reutilizados, inicio incerto nao dispara POST cego.
+A regra nao garante doze posts quando o provedor devolve menos dados validos.
+
+Validacao local: 822 testes passaram; as 11 integracoes de banco opt-in nao
+rodam no npm test comum. Typecheck, lint, format:check, build e smoke do worker
+desabilitado passaram. O teste PostgreSQL dedicado passou em cerca de 174 segundos, em schema temporario,
+com enqueues concorrentes, custo compartilhado contado uma vez, doze posts por
+alvo, fontes inativas, barreira Daily (inclusive falha), troca de pagador sem liberar reserva ativa, fencing/retomada e
+remocao do schema confirmada. Porta 6543/pgbouncer usada apenas no processo de
+teste; .env preservado. Os custos e Actors sao simulados: nao houve Actor pago,
+deploy, instalacao de scheduler ou alteracao de linhas de public.
+
+Estado: 16/16 endpoints e 5/5 executores implementados em codigo. Restam
+cobertura/conciliação geral de custos (incluindo legado), validacao real de
+Actors/contratos/SLA, integracao com backend e configuracao/deploy da VPS.

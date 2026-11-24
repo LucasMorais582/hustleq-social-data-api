@@ -212,8 +212,8 @@ a identidade/relação, preservando o registro do custo da consulta.
 
 A antiga `POST .../competitors/search` permanece depreciada e protegida pelo
 mesmo acesso de dono. Seu comprovante não é mais aceito na inclusão; use a prévia
-GET do contrato MVP. O Watched Sync diário ainda será implementado; o cron legado
-continua selecionando perfis salvos e não deve ser confundido com esse job MVP.
+GET do contrato MVP. O Watched Sync diário foi implementado na etapa R e usa
+relações ativas elegíveis, conforme a seção ao final deste documento.
 
 ## Adaptação MVP — etapa de autenticação e erros
 
@@ -926,7 +926,7 @@ perfil/data local, mesmo se a sequência anterior terminou em falha.
 São elegíveis perfis próprios com dono e monitoramento vigente. Owner e prazo
 são revalidados ao enfileirar, ao executar e antes de gravar cada perfil. Perfil
 sincronizado há menos de vinte horas é ignorado. Perfis sem dono e relações de
-concorrência não entram no Daily: o Watched será uma etapa separada. Nenhum
+concorrência não entram no Daily: o Watched usa a seleção de relações descrita abaixo. Nenhum
 usuário é inferido do username, e nenhuma tabela User é criada.
 
 Um job DAILY_PROFILE_SYNC registra a lista original e os membros ainda pendentes.
@@ -967,3 +967,39 @@ ainda atende Initial, Post Refresh e Discover.
 Os testes usam transporte Apify simulado; custo, cobertura real dos doze posts e
 conclusão antes das 6h ainda dependem de validação autorizada. Nenhuma migration,
 instalação de cron ou execução paga é necessária para estes testes.
+
+## Watched Sync — contas acompanhadas apos o Daily
+
+O mesmo cron de 4h de Nova York enfileira as contas acompanhadas depois dos
+perfis proprios. O worker espera todos os Daily pendentes/em execucao terminarem,
+incluindo retries futuros, antes de coletar Watched. Nao ha endpoint novo.
+O resumo do cron acrescenta `watched` com total/queued/reused/notDue/failed/pending
+e failures; qualquer enqueue incompleto retorna 503. Isso confirma enqueue,
+nao que os dados ja foram atualizados.
+
+Entram apenas relacoes ativas cujo **monitorador** tenha dono e prazo de
+monitoramento vigente. O alvo pode nao ter dono. Relacoes encerradas e fontes
+pausadas nao alimentam a coleta; historico permanece salvo. Os alvos sao
+revalidados antes do Apify e da persistencia. Daily que ja tentou aquele alvo na
+mesma data NY (mesmo com falha) impede uma segunda sequencia no Watched.
+
+Cada alvo e coletado uma vez e respeita o intervalo de vinte horas. Os lotes usam
+`INSTAGRAM_DAILY_BATCH_SIZE`, agrupados pelo usuario a quem o custo pertence.
+Multiplos perfis do mesmo usuario nao duplicam custo. Se usuarios diferentes
+acompanham o mesmo alvo, o custo e registrado uma vez com userId null e aparece
+em `unattributedUsd`. A atribuicao e conferida antes de iniciar o Actor; se mudar,
+o lote antigo descarta o membro e um cron posterior pode seleciona-lo novamente.
+Uma execucao ja iniciada preserva sua atribuicao original.
+
+A coleta usa o pipeline Daily: identidade, snapshot, ate doze posts proprios
+mais recentes e views pelo Reel Scraper. Metricas usam `source: daily`; execucoes
+usam `trigger: watched`. Tres tentativas totais (esperas de 1/5min), progresso por
+membro, retomada de lease e reutilizacao de runs conhecidos preservam os sucessos
+sem repetir inicios incertos. Campos desconhecidos continuam null.
+
+Sem migration, nova variavel, Actor pago ou deploy nesta etapa. Para verificar
+persistencia/concorrencia em schema temporario, com Apify simulada:
+
+```bash
+RUN_DATABASE_TESTS=true npx vitest run tests/instagram-watched.integration.test.ts
+```

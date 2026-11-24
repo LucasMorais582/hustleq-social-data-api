@@ -1,6 +1,7 @@
 import { findProfilesForInstagramRefresh } from './instagram.refresh.repository.js';
 import { getInstagramRefreshDate } from './instagram.refresh.schedule.js';
 import { enqueueDailyBatch } from '../jobs/instagram.daily.repository.js';
+import { scheduleWatchedSync } from './instagram.watched-schedule.service.js';
 import { env } from '../../../config/env.js';
 
 export async function runInstagramRefresh(now = new Date(), clock = Date.now) {
@@ -50,5 +51,10 @@ export async function runInstagramRefresh(now = new Date(), clock = Date.now) {
     }
   }
   result.pending = result.total - result.queued - result.reused - result.notDue - result.failed;
+  // Não agenda Watched se parte do Daily nem sequer pôde ser enfileirada.
+  if (!result.failed && !result.pending) {
+    const watched = await scheduleWatchedSync(date, startedAt, clock);
+    return { ...result, watched };
+  }
   return result;
 }

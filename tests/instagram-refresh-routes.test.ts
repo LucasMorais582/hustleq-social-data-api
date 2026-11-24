@@ -87,6 +87,20 @@ describe('protected daily refresh route', () => {
     expect(response.statusCode).toBe(503);
     expect(response.json().code).toBe('REFRESH_INCOMPLETE');
   });
+  it.each([
+    { failed: 1, pending: 0 },
+    { failed: 0, pending: 1 },
+  ])('reports incomplete Watched enqueue %j as 503', async (watched) => {
+    const instance = prepare();
+    run.mockResolvedValue({ skipped: false, failed: 0, pending: 0, watched });
+    const response = await instance.inject({
+      method: 'GET',
+      url,
+      headers: { authorization: `Bearer ${secret}` },
+    });
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toMatchObject({ code: 'REFRESH_INCOMPLETE', watched });
+  });
   it('releases its in-process lock after an error', async () => {
     const instance = prepare();
     run.mockRejectedValueOnce(new Error('DB error')).mockResolvedValueOnce({ skipped: true });
