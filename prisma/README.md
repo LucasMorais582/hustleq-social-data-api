@@ -407,3 +407,19 @@ Verifica limites UTC inclusivo/exclusivo, somas Decimal, execução iniciada em 
 mês e terminada em outro, falhas com custo, custos null, execução sem userId e
 leitura sem alteração das linhas. Remove e verifica a ausência do schema ao fim.
 Não executa Actors nem altera o schema public.
+
+## Post Refresh — cota e snapshots sem migration nova
+
+Endpoints 8/10 usam as tabelas existentes. InstagramSyncJob é o ledger do teto
+manual por usuário/dia UTC: inclui tarefas aceitas que falharam, sem contar retries
+ou reutilização. Preservar o histórico de jobs para não perder essa contagem.
+Advisory lock por usuário e lock por post protegem cota e enqueue concorrentes.
+Snapshot, lastCollectedAt e conclusão da tarefa são uma transação sob lease.
+
+```bash
+RUN_DATABASE_TESTS=true npx vitest run tests/instagram-post-refresh.integration.test.ts
+```
+
+O teste usa schema próprio, HTTP/worker reais e transporte Apify simulado. Verifica
+deduplicação, três tentativas, preservação dos snapshots, concorrência no teto,
+dia anterior e rollback por lease vencido. Não altera registros de public.

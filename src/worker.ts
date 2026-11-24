@@ -1,5 +1,6 @@
 import { setTimeout } from 'node:timers/promises';
 import { env } from './config/env.js';
+import { runPostRefreshWorkerOnce } from './modules/instagram/jobs/instagram.post-refresh.service.js';
 import { getPrismaClient } from './provider/database/prisma.client.js';
 import {
   initialSyncErrorCode,
@@ -25,9 +26,17 @@ async function main() {
         const result = await runInitialSyncWorkerOnce(client);
         processed = result !== null;
         if (result) console.info(JSON.stringify({ event: 'initial_sync', ...result }));
+        if (!shutdown.signal.aborted) {
+          const postResult = await runPostRefreshWorkerOnce(client);
+          processed = processed || postResult !== null;
+          if (postResult) console.info(JSON.stringify({ event: 'post_refresh', ...postResult }));
+        }
       } catch (error) {
         console.error(
-          JSON.stringify({ event: 'initial_sync_worker_error', code: initialSyncErrorCode(error) }),
+          JSON.stringify({
+            event: 'instagram_worker_error',
+            code: initialSyncErrorCode(error, 'INSTAGRAM_SYNC_FAILED'),
+          }),
         );
       }
       if (!processed && !shutdown.signal.aborted) {

@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { z } from 'zod';
 
 const envSchema = z.object({
+  INSTAGRAM_MANUAL_REFRESH_DAILY_LIMIT: z.coerce.number().int().min(1).max(1000).default(10),
   INSTAGRAM_WORKER_ENABLED: z
     .enum(['true', 'false'])
     .default('false')

@@ -24,7 +24,7 @@ const profileSelect = {
   lastSyncedAt: true,
   snapshots: { orderBy: { collectedAt: 'desc' }, take: 1, select: profileSnapshotSelect },
 } satisfies Prisma.InstagramProfileSelect;
-const postSelect = {
+export const postSelect = {
   id: true,
   instagramPostId: true,
   url: true,

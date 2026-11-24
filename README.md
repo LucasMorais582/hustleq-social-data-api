@@ -746,3 +746,65 @@ um custo desconhecido for preenchido. Não há estimativa nem conversão cambial
 Query inválida retorna 400; token inválido/expirado, 401; token de usuário, 403.
 Falhas de banco ou valores fora da precisão suportada retornam 500 sanitizado.
 A resposta usa Cache-Control private, no-store e o contrato aparece no Swagger.
+
+## Consulta e refresh de um post salvo — endpoints 8 e 10
+
+As duas rotas exigem token de usuário e acesso OWNER ou COMPETITOR ao perfil do
+post. `postId` é o ID interno string da Social Data API, não o ID do Instagram.
+
+- `GET /api/v1/instagram/posts/{postId}` retorna 200 com o mesmo objeto de post
+  da listagem quando lastCollectedAt tem menos de 24 horas. Com 24 horas exatas,
+  mais tempo ou coleta ausente, cria uma tarefa on_open e retorna:
+
+  ```json
+  { "status": "refreshing", "post": { "id": "id-interno", "...": "dados salvos" } }
+  ```
+
+  O status HTTP é 202. Os dados anteriores continuam disponíveis enquanto o
+  worker trabalha. Consulte o GET novamente para obter o resultado. Se já houver
+  atualização em andamento, retorna 202 também, mesmo com métricas recentes.
+
+- `POST /api/v1/instagram/posts/{postId}/refresh`, sem body, agenda uma coleta
+  manual mesmo com dados recentes e retorna 202 `{ "status": "refreshing" }`.
+  Uma tarefa pendente, em retry ou rodando para o post é reutilizada. Um
+  ProviderRun running iniciado há menos de dez minutos também bloqueia duplicação.
+
+Configure o teto de segurança no ambiente:
+
+```dotenv
+INSTAGRAM_MANUAL_REFRESH_DAILY_LIMIT=10
+```
+
+O limite é por usuário do JWT, somando todos os posts que ele pode acessar.
+Zera à meia-noite UTC e usa o relógio do PostgreSQL. Cada tarefa manual aceita
+consome uma unidade, **mesmo se falhar depois**. Retry da mesma tarefa não consome
+outra unidade; reaproveitar uma tarefa em andamento também não. on_open não conta.
+A contagem usa InstagramSyncJob persistido, inclusive FAILED/SUCCEEDED, e uma
+trava transacional por usuário evita ultrapassar o teto com chamadas simultâneas
+para posts diferentes. Não apagar jobs históricos, pois são o registro da cota.
+A cota comercial de dois por conta continua no backend principal.
+
+O processo separado `npm run start:worker`, com INSTAGRAM_WORKER_ENABLED=true,
+executa Initial Sync e Post Refresh. Sem o worker, 202 significa tarefa gravada,
+mas ela não será processada. São três tentativas no total, com esperas de um e
+cinco minutos. Lease expirado é retomado com outro token na mesma tentativa;
+execuções Apify conhecidas são consultadas novamente, sem outro POST de início.
+Início incerto sem apifyRunId não é repetido cegamente e requer conciliação.
+
+Reels usam instagram-reel-scraper; foto/carrossel usam instagram-scraper com URL
+canônica /p/, resultsType posts e resultsLimit 1, conforme o
+[OpenAPI oficial](https://apify.com/apify/instagram-scraper/api/openapi).
+A escolha atende o guia; menor custo real ainda não foi comprovado em benchmark.
+O worker valida o ID do post, autor e tipo antes de gravar. Acrescenta snapshot
+com source on_open/refresh e atualiza lastCollectedAt na mesma transação que
+conclui o job; conteúdo estável e snapshots anteriores são preservados. Views
+só vêm do Reel Scraper; campos indisponíveis ficam null. ProviderRun registra a
+execução e seu custo conhecido/null, atribuído ao dono do perfil ou ao solicitante
+quando o perfil não tem dono, seguindo a regra usada pelo Initial Sync.
+
+Falhas mantêm o histórico e lastCollectedAt anterior. Perda de posse ou expiração
+do lease impede commit do worker antigo. Não há atualização de perfil nesta rota
+nem alteração do cron diário. Erros: 404 POST_NOT_FOUND, 403 FORBIDDEN,
+429 MANUAL_REFRESH_LIMIT_REACHED, além de 400/401/500; URL salva sem suporte retorna
+503 PROVIDER_UNAVAILABLE. Queries extras e body com parâmetros são rejeitados.
+Nenhuma chamada Apify é feita durante a requisição HTTP.

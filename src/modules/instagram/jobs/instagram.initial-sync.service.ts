@@ -103,7 +103,7 @@ export function initialReelUrls(collection: ProfileCollection) {
       : [];
   });
 }
-export function initialSyncErrorCode(error: unknown) {
+export function initialSyncErrorCode(error: unknown, fallback = 'INITIAL_SYNC_FAILED') {
   if (
     error &&
     typeof error === 'object' &&
@@ -112,7 +112,7 @@ export function initialSyncErrorCode(error: unknown) {
     /^[A-Z][A-Z0-9_]{0,99}$/.test(error.code)
   )
     return error.code;
-  return 'INITIAL_SYNC_FAILED';
+  return fallback;
 }
 
 export async function processInitialProfileSync(

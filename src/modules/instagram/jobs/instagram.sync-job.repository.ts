@@ -74,9 +74,10 @@ export async function claimNextInstagramSyncJob(
 }
 
 // Retomada da MESMA tentativa: o executor consulta os ProviderRuns persistidos.
-export async function reclaimInitialProfileSyncJob(
+export async function reclaimInstagramSyncJob(
   leaseMs: number,
   client: QueueClient = getPrismaClient(),
+  type: InstagramSyncJobType = 'INITIAL_PROFILE_SYNC',
 ) {
   syncJobLeaseSchema.parse(leaseMs);
   const rows = await client.$queryRaw<InstagramSyncJob[]>`
@@ -86,12 +87,16 @@ export async function reclaimInitialProfileSyncJob(
         "lockToken" = ${randomUUID()}, "updatedAt" = statement_timestamp()
     WHERE job."id" = (
       SELECT "id" FROM "InstagramSyncJob"
-      WHERE "type" = 'INITIAL_PROFILE_SYNC' AND "status" = 'RUNNING'
+      WHERE "type" = ${type}::"InstagramSyncJobType" AND "status" = 'RUNNING'
         AND "leaseExpiresAt" <= statement_timestamp()
       ORDER BY "leaseExpiresAt", "id" FOR UPDATE SKIP LOCKED LIMIT 1
     ) RETURNING job.*
   `;
   return rows[0] ?? null;
+}
+
+export function reclaimInitialProfileSyncJob(leaseMs: number, client?: QueueClient) {
+  return reclaimInstagramSyncJob(leaseMs, client);
 }
 
 export async function renewInstagramSyncJobLease(

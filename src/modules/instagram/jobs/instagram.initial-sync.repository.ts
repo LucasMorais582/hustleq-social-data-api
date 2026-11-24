@@ -21,10 +21,11 @@ const metadataSchema = z
   })
   .passthrough();
 
-export async function withOwnedInitialSync<T>(
+export async function withOwnedSync<T>(
   owner: InitialJobOwner,
   work: (tx: Prisma.TransactionClient, job: InstagramSyncJob) => Promise<T>,
   client: PrismaClient = getPrismaClient(),
+  type: 'INITIAL_PROFILE_SYNC' | 'POST_REFRESH' = 'INITIAL_PROFILE_SYNC',
 ) {
   for (let attempt = 1; ; attempt++) {
     try {
@@ -32,7 +33,7 @@ export async function withOwnedInitialSync<T>(
         async (tx) => {
           const rows = await tx.$queryRaw<InstagramSyncJob[]>`
           SELECT * FROM "InstagramSyncJob"
-          WHERE "id" = ${owner.id} AND "type" = 'INITIAL_PROFILE_SYNC'
+          WHERE "id" = ${owner.id} AND "type" = ${type}::"InstagramSyncJobType"
             AND "status" = 'RUNNING' AND "lockToken" = ${owner.lockToken}
             AND "leaseExpiresAt" > statement_timestamp()
           FOR UPDATE
@@ -61,6 +62,14 @@ export async function withOwnedInitialSync<T>(
       throw error;
     }
   }
+}
+
+export function withOwnedInitialSync<T>(
+  owner: InitialJobOwner,
+  work: (tx: Prisma.TransactionClient, job: InstagramSyncJob) => Promise<T>,
+  client?: PrismaClient,
+) {
+  return withOwnedSync(owner, work, client);
 }
 
 export function beginInitialProfileSync(owner: InitialJobOwner, client?: PrismaClient) {
