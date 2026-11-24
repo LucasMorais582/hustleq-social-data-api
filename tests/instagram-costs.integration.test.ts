@@ -9,10 +9,11 @@ vi.mock('../src/provider/database/prisma.client.js', () => ({
   getPrismaClient: () => state.client,
 }));
 vi.mock('../src/provider/apify/config/apify.client.js', () => ({ createApifyClient: state.apify }));
+import { reconcileProviderRuns } from '../src/provider/apify/apify.reconciliation.service.js';
 import { buildApp } from '../src/app.js';
 
 describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')('Monthly costs on PostgreSQL', () => {
-  it('uses UTC bounds, Decimal sums, all statuses and null-aware groups without writes', async () => {
+  it('verifies monthly reads, legacy caller costs and reconciliation with concurrency and pagination', async () => {
     const connection = process.env.DIRECT_URL ?? process.env.DATABASE_URL;
     if (!connection) throw new Error('Configure o banco de desenvolvimento');
     const namespace = `costs_test_${randomUUID().replaceAll('-', '')}`;
@@ -30,6 +31,8 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')('Monthly costs on Post
       );
     state.client = {
       providerRun: {
+        create: (args: Prisma.ProviderRunCreateArgs) => base.providerRun.create(args),
+        update: (args: Prisma.ProviderRunUpdateArgs) => base.providerRun.update(args),
         groupBy: (args: Prisma.ProviderRunGroupByArgs) =>
           inSchema((tx) => tx.providerRun.groupBy(args as never)),
       },
@@ -141,6 +144,80 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')('Monthly costs on Post
         before,
       );
       expect(state.apify).not.toHaveBeenCalled();
+      // The old post endpoint now records costs for the JWT caller, without changing its DTO.
+      state.apify.mockReturnValue({
+        actor: () => ({
+          call: async () => ({
+            id: 'legacy-external',
+            status: 'SUCCEEDED',
+            usageTotalUsd: 0.015,
+            defaultDatasetId: 'fixture',
+          }),
+        }),
+        dataset: () => ({ listItems: async () => ({ items: [] }) }),
+      });
+      const legacy = await app.inject({
+        method: 'POST',
+        url: '/api/v1/instagram/post/search',
+        headers: authHeaders({ sub: 'legacy-caller' }),
+        payload: { username: 'example', resultLimits: 1 },
+      });
+      expect(legacy.statusCode, legacy.body).toBe(200);
+      const ledger = await base.providerRun.findFirstOrThrow({
+        where: { apifyRunId: 'legacy-external' },
+      });
+      expect(ledger).toMatchObject({
+        userId: 'legacy-caller',
+        trigger: 'search',
+        status: 'succeeded',
+        items: 0,
+      });
+      expect(ledger.costUsd?.toString()).toBe('0.015');
+      await base.providerRun.update({
+        where: { id: 'unknown-running' },
+        data: { apifyRunId: 'known-stale' },
+      });
+      // A worker changes this row after the scan: optimistic reconciliation must not overwrite it.
+      const changed = await reconcileProviderRuns(100, base, {
+        get: async (id) => {
+          await base.providerRun.update({ where: { id: 'unknown-running' }, data: { items: 7 } });
+          return { id, status: 'SUCCEEDED', usageTotalUsd: 0.123456 };
+        },
+      });
+      expect(changed).toMatchObject({ inspected: 1, conflicts: 1, updated: 0 });
+      expect(
+        (await base.providerRun.findUniqueOrThrow({ where: { id: 'unknown-running' } })).costUsd,
+      ).toBeNull();
+      expect(
+        await reconcileProviderRuns(100, base, {
+          get: async (id) => ({ id, status: 'SUCCEEDED', usageTotalUsd: 0.123456 }),
+        }),
+      ).toMatchObject({ updated: 1 });
+      expect(
+        (
+          await base.providerRun.findUniqueOrThrow({ where: { id: 'unknown-running' } })
+        ).costUsd?.toString(),
+      ).toBe('0.123456');
+      await base.providerRun.createMany({
+        data: ['cursor-a', 'cursor-b'].map((id) => ({
+          id,
+          actor: 'fixture',
+          trigger: 'search',
+          status: 'running',
+          apifyRunId: id,
+          startedAt: new Date('2026-12-10T00:00:00Z'),
+        })),
+      });
+      const transport = {
+        get: async (id: string) => ({ id, status: 'SUCCEEDED', usageTotalUsd: 0.02 }),
+      };
+      const page1 = await reconcileProviderRuns(1, base, transport);
+      expect(page1.nextCursor).toBe('cursor-a');
+      const page2 = await reconcileProviderRuns(1, base, transport, page1.nextCursor!);
+      expect(page2).toMatchObject({ nextCursor: 'cursor-b', updated: 1 });
+      expect((await reconcileProviderRuns(1, base, transport, page2.nextCursor!)).inspected).toBe(
+        0,
+      );
     } finally {
       await app.close();
       try {
@@ -154,5 +231,5 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')('Monthly costs on Post
         state.client = undefined;
       }
     }
-  }, 120000);
+  }, 240000);
 });

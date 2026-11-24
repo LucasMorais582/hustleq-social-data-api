@@ -24,7 +24,8 @@
     "prisma:studio": "prisma studio",
     "vercel:dev": "vercel dev",
     "dev:worker": "tsx watch src/worker.ts",
-    "start:worker": "node dist/src/worker.js"
+    "start:worker": "node dist/src/worker.js",
+    "costs:reconcile": "node dist/src/maintenance/reconcile-provider-runs.js"
   },
   "dependencies": {
     "@fastify/jwt": "^9.1.0",

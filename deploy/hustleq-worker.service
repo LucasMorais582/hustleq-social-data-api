@@ -1,0 +1,24 @@
+[Unit]
+Description=HustleQ Instagram Worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hustleq
+Group=hustleq
+WorkingDirectory=/opt/hustleq-social-data-api
+EnvironmentFile=/etc/hustleq/social-data-api.env
+Environment=INSTAGRAM_WORKER_ENABLED=true
+ExecStart=/usr/bin/node /opt/hustleq-social-data-api/dist/src/worker.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=1200
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

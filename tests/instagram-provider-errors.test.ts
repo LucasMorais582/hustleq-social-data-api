@@ -1,3 +1,7 @@
+vi.mock('../src/provider/apify/apify.execution.repository.js', () => ({
+  beginProviderExecution: async () => ({ id: 'legacy-test-run' }),
+  updateProviderExecution: async () => ({}),
+}));
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { authHeaders } from './helpers/auth.js';

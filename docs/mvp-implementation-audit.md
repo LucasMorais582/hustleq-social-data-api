@@ -33,19 +33,19 @@ o adaptador do backend, custos/SLA reais e a operacao na VPS.
 
 ## Funcionalidades - acompanhamento atual
 
-| Funcionalidade                          | Situacao                                          | O que falta                                  |
-| --------------------------------------- | ------------------------------------------------- | -------------------------------------------- |
-| Tabelas, IDs String e migrations        | Prontas no desenvolvimento                        | Alinhar CUID com o consumidor                |
-| JWT, OWNER/COMPETITOR e token service   | Prontos nas rotas MVP                             | Integracao externa                           |
-| Convites, reserva, dono e monitoramento | Endpoints 1–5/11 implementados                    | Validacao externa de contrato/SLA            |
-| Leituras de posts e historico           | Endpoints 6–9 implementados                       | Validar adaptador                            |
-| Fila duravel e cinco executores         | Implementados                                     | Operacao API/worker/scheduler na VPS         |
-| Coleta diaria propria e acompanhada     | Daily (Q) e Watched (R), 12 posts e intervalo 20h | Actors/SLA/custo reais                       |
-| Contas acompanhadas                     | Endpoints 13–15 e sincronizacao implementados     | Integracao externa                           |
-| Post Refresh                            | Fila, retries, deduplicacao e teto UTC            | Benchmark dos Actors e deploy                |
-| Custos Apify                            | Endpoint 12 e ledger dos fluxos MVP rastreados    | Cobertura legada e conciliacao geral         |
-| Discover                                | Endpoint 16, cache 24h e executor                 | Aquecimento pelo backend e validacao externa |
-| Deploy e integracao                     | VPS confirmada                                    | Configurar e validar com o backend principal |
+| Funcionalidade                          | Situacao                                             | O que falta                                   |
+| --------------------------------------- | ---------------------------------------------------- | --------------------------------------------- |
+| Tabelas, IDs String e migrations        | Prontas no desenvolvimento                           | Alinhar CUID com o consumidor                 |
+| JWT, OWNER/COMPETITOR e token service   | Prontos nas rotas MVP                                | Integracao externa                            |
+| Convites, reserva, dono e monitoramento | Endpoints 1–5/11 implementados                       | Validacao externa de contrato/SLA             |
+| Leituras de posts e historico           | Endpoints 6–9 implementados                          | Validar adaptador                             |
+| Fila duravel e cinco executores         | Implementados                                        | Operacao API/worker/scheduler na VPS          |
+| Coleta diaria propria e acompanhada     | Daily (Q) e Watched (R), 12 posts e intervalo 20h    | Actors/SLA/custo reais                        |
+| Contas acompanhadas                     | Endpoints 13–15 e sincronizacao implementados        | Integracao externa                            |
+| Post Refresh                            | Fila, retries, deduplicacao e teto UTC               | Benchmark dos Actors e deploy                 |
+| Custos Apify                            | Ledger MVP/legado e conciliacao manual implementados | Conferencia de inicios sem ID e cobranca real |
+| Discover                                | Endpoint 16, cache 24h e executor                    | Aquecimento pelo backend e validacao externa  |
+| Deploy e integracao                     | VPS confirmada                                       | Configurar e validar com o backend principal  |
 
 ## Inventário dos 16 endpoints
 
@@ -66,7 +66,7 @@ usam `{ response: ... }`; as novas leituras 5-7 retornam objetos diretos como no
 | 9   | GET /instagram/posts/:postId/metrics                            | Pronto nesta etapa                                                     | Validacao externa com o adaptador                                      |
 | 10  | POST /instagram/posts/:postId/refresh                           | Pronto: fila, deduplicacao, teto diario UTC e snapshot                 | Validacao externa e worker no deploy                                   |
 | 11  | PATCH /internal/instagram/profiles/:profileId/monitoring        | Pronto nesta etapa                                                     | Elegibilidade aplicada a Daily e Watched; validar integracao externa   |
-| 12  | GET /internal/costs                                             | Pronto: mes UTC, agrupamentos e totais anulaveis                       | Instrumentacao completa do ledger e conciliacao pendentes              |
+| 12  | GET /internal/costs                                             | Pronto: mes UTC, agrupamentos e totais anulaveis                       | Ledger/conciliacao implementados; validar cobranca externa             |
 | 13  | GET /instagram/profiles/:profileId/competitors                  | Pronto: dono, listagem no envelope existente                           | Validacao externa com o adaptador                                      |
 | 14  | POST /instagram/profiles/:profileId/competitors                 | Pronto: username, regras e Initial Sync atomico                        | Worker habilitado no deploy e validacao externa                        |
 | 15  | DELETE /instagram/profiles/:profileId/competitors/:competitorId | Pronto: ID da relacao, dono, 204, historico preservado                 | Validacao externa; Watched diario implementado na etapa R              |
@@ -98,16 +98,16 @@ ownerUserId e atribuido explicitamente pelo endpoint interno 3, nunca por efeito
 
 ## Banco - oito tabelas aplicadas ao desenvolvimento
 
-| Tabela                      | Estado atual                                                                   | Pendente                                                     |
-| --------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------ |
-| InstagramProfile            | Identidade e fluxos de reserva/dono/monitoramento; Initial Sync                | Elegibilidade/atualizacao Daily e Watched implementadas      |
-| InstagramProfileSnapshot    | Jobs Initial/Daily com intervalo minimo de 20h; legado HTTP 24h                | Validacao externa e historico diario em producao             |
-| InstagramCompetitor         | Relacao, endedAt, historico e limite de tres ativos; endpoints 13–15           | Watched Sync implementado; validar integracao externa        |
-| InstagramPost               | Conteudo, lastCollectedAt e frescor 200/202 nos endpoints 6/8                  | Daily/Watched implementados; validar Actors reais            |
-| InstagramPostMetricSnapshot | Historico imutavel; source initial/on_open/refresh, views BigInt e likesHidden | source daily nos jobs; validacao real pendente               |
-| DiscoverCache               | Endpoint, chave normalizada, TTL 24h e coordenacao de buscas                   | Validacao externa e operacao no deploy                       |
-| ProviderRun                 | Registrado pelo worker Initial com custo conhecido/null e referencia por etapa | Demais fluxos, lotes, custos e conciliacao de inicio incerto |
-| InstagramSyncJob            | Fila e worker Initial com retomada de lease e ids Apify persistidos            | Enqueue pelos endpoints MVP e demais executores              |
+| Tabela                      | Estado atual                                                                   | Pendente                                                 |
+| --------------------------- | ------------------------------------------------------------------------------ | -------------------------------------------------------- |
+| InstagramProfile            | Identidade e fluxos de reserva/dono/monitoramento; Initial Sync                | Elegibilidade/atualizacao Daily e Watched implementadas  |
+| InstagramProfileSnapshot    | Jobs Initial/Daily com intervalo minimo de 20h; legado HTTP 24h                | Validacao externa e historico diario em producao         |
+| InstagramCompetitor         | Relacao, endedAt, historico e limite de tres ativos; endpoints 13–15           | Watched Sync implementado; validar integracao externa    |
+| InstagramPost               | Conteudo, lastCollectedAt e frescor 200/202 nos endpoints 6/8                  | Daily/Watched implementados; validar Actors reais        |
+| InstagramPostMetricSnapshot | Historico imutavel; source initial/on_open/refresh, views BigInt e likesHidden | source daily nos jobs; validacao real pendente           |
+| DiscoverCache               | Endpoint, chave normalizada, TTL 24h e coordenacao de buscas                   | Validacao externa e operacao no deploy                   |
+| ProviderRun                 | MVP e legado com custo conhecido/null, usuario, estado e conciliacao manual    | MVP/legado rastreados; inicios sem ID exigem conferencia |
+| InstagramSyncJob            | Fila e worker Initial com retomada de lease e ids Apify persistidos            | Enqueue pelos endpoints MVP e demais executores          |
 
 Decisoes preservadas: IDs internos String/cuid(), sem conversao para UUID;
 FKs anteriores com Restrict; contagens e isVerified desconhecidos podem ser null.
@@ -1068,3 +1068,59 @@ deploy, instalacao de scheduler ou alteracao de linhas de public.
 Estado: 16/16 endpoints e 5/5 executores implementados em codigo. Restam
 cobertura/conciliação geral de custos (incluindo legado), validacao real de
 Actors/contratos/SLA, integracao com backend e configuracao/deploy da VPS.
+
+## Etapa S — fechamento local, custos legados e operacao
+
+O usuario solicitou finalizar as pendencias locais, sem novas pausas entre
+subetapas. Nenhuma autorizacao de deploy, envio de segredos ou Actor pago foi
+inferida. Permanecem dezesseis endpoints, cinco executores e oito tabelas.
+Nao houve migration nem mudanca de DTO nesta etapa.
+
+Buscas HTTP legadas profile/post/trends e previa depreciada de concorrente
+estabelecem contexto AsyncLocalStorage com sub validado no JWT. O provider
+registra um ProviderRun search antes da chamada paga, com userId externo,
+apifyRunId quando confirmado, custo Decimal real/null, estado, itens e codigos
+de falha. Nao confunde esse usuario com o autor do Instagram. Requests paralelos
+nao compartilham identidade. Sem ledger disponivel, nao inicia chamada paga.
+Erro de persistencia e sanitizado, sem SQL/credenciais no HTTP. SDK usa maxRetries
+zero para evitar repeticao automatica de inicio incerto. Falha de download
+preserva run sucedido e custo; recusas/notice-only registram falha. Sem ID depois
+de timeout, mantem PROVIDER_START_UNCERTAIN, nunca assume zero ou repete POST.
+
+npm run costs:reconcile, depois do build, consulta somente metadados de runs com
+ID conhecido e estado running ou custo null. Limite 1–500, default100; --after
+retoma pela ordem startedAt/id. Paginacao por comparacao de chave permanece
+correta quando a linha anterior sai do filtro apos ser conciliada. Teste real
+revelou e corrigiu esse caso. Escrita otimista compara estado/custo/erro/itens/
+finishedAt observados, evitando sobrescrever atualizacao de worker concorrente.
+Preserva custo conhecido quando o provedor omite valor e falha semantica de
+notices mesmo com Actor SUCCEEDED. Nunca reassocia usuario, estima preco ou
+inicia/reinicia Actor. Starts sem ID sao contados em unresolvedStarts e precisam
+de conferencia humana; nao existe exactly-once externo ou conciliacao automatica
+segura desse caso. Historico anterior nao rastreado nao recebe custo inventado.
+
+Arquivos deploy/ preparados: API/worker systemd separados, timer e cliente HTTP
+do cron via loopback/CRON_SECRET no header, exemplo de proxy e guia operacional.
+Timer chama a cada dez minutos UTC; gate da API continua 4h NY e PostgreSQL
+deduplica jobs. Segredos ficam fora do repositorio. Configuracao de TLS/dominio,
+usuario de servico, caminhos Node/checkout e firewall sao do ambiente de destino.
+Nao instalados/validados em VPS Linux; apenas guia e templates locais revisados.
+A sintaxe do timer foi conferida no manual oficial systemd.time.
+
+Validacao: 873 testes locais passaram; onze integracoes opt-in ficam fora do
+npm test comum. Typecheck, lint, format:check e build passaram. Teste PostgreSQL
+de custos passou em cerca de 37 segundos: endpoint mensal preservado, chamada
+legada atribuida ao sub autenticado, custo Decimal, atualizacao concorrente e
+paginacao apos remover linha do filtro. Schema temporario removido e ausencia
+confirmada; conexao 6543 usada apenas no processo de teste. CLI compilada rejeitou
+--limit 0 com exit1 antes de consultar runs; cliente cron passou em node --check
+e em nove testes com HTTP simulado. Templates systemd/proxy nao foram executados
+numa VPS. Actors/custos de testes sao simulados; nenhuma mutacao em public,
+Actor pago, instalacao de servidor, envio de segredo ou deploy foi feito.
+.env e arquivos pessoais nao foram alterados.
+
+Estado final local: 16 endpoints e 5 executores implementados; ledger de chamadas
+MVP/legadas, conciliacao e artefatos operacionais prontos. Dependencias externas:
+validar contrato com o backend principal (inclusive prefixo/IDs String), executar
+benchmark autorizado de Actors/custos/SLA e instalar/configurar a VPS. Nao declarar
+producao pronta nem integracao externa concluida sem essas verificacoes.

@@ -16,6 +16,9 @@ export function isProviderRateLimit(message: string) {
 }
 
 export function providerFailure(message: string, statusCode?: number) {
+  message = message
+    .replace(/apify_api_[a-zA-Z0-9_-]+/g, '[redacted]')
+    .replace(/([?&]token=)[^&\s]+/gi, '$1[redacted]');
   const limited = statusCode === 429 || isProviderRateLimit(message);
   return new ProviderError(
     limited ? 429 : 503,

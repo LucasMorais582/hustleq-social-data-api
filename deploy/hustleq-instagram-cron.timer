@@ -1,0 +1,13 @@
+[Unit]
+Description=Daily Instagram scheduling window at 4am New York
+
+[Timer]
+# Dispara cada dez minutos UTC; a API só aceita a janela 4h–4h59 de Nova York.
+# Repetições nessa janela completam enqueues parciais, sem duplicar os jobs.
+OnCalendar=*-*-* *:00/10:00 UTC
+Persistent=true
+AccuracySec=30s
+Unit=hustleq-instagram-cron.service
+
+[Install]
+WantedBy=timers.target

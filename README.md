@@ -1003,3 +1003,32 @@ persistencia/concorrencia em schema temporario, com Apify simulada:
 ```bash
 RUN_DATABASE_TESTS=true npx vitest run tests/instagram-watched.integration.test.ts
 ```
+
+## Entrega e operação da MVP
+
+Os 16 endpoints e os cinco executores estão implementados. O inventário completo
+fica em [docs/mvp-implementation-audit.md](docs/mvp-implementation-audit.md).
+As buscas legadas de perfil, posts, trends e prévia de concorrente também
+registram ProviderRun com o usuário autenticado, custo real conhecido/null e
+falhas. Não há alteração nos seus DTOs ou criação de User.
+
+Execuções com ID conhecido podem ter custos/estado conciliados após o build:
+
+```bash
+npm run costs:reconcile -- --limit 100
+```
+
+Use `--after ID` com nextCursor para continuar. O comando apenas consulta runs;
+não inicia Actors. Inícios sem ID confirmado continuam como unresolvedStarts e
+exigem conferência operacional, sem associação ou cobrança estimada. Dados de
+custos de buscas antigas anteriores ao rastreamento não são inventados/backfill.
+
+[deploy/README.md](deploy/README.md) contém serviços systemd separados para API e
+worker, timer, cliente do cron e referência de proxy. São arquivos para revisão
+e instalação na VPS, sem deploy efetuado. O timer consulta a API a cada dez
+minutos e o servidor aceita apenas 4h–4h59 de Nova York; repetições são deduplicadas.
+A sintaxe do calendário segue o [manual oficial do systemd](https://www.freedesktop.org/software/systemd/man/latest/systemd.time.html).
+
+A entrega local não substitui a validação com o backend principal, domínio/TLS,
+credenciais da VPS e Actors reais: cobertura de resultados, custo e conclusão
+antes das 6h precisam ser medidos no ambiente de destino.

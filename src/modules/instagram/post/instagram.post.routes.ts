@@ -1,4 +1,5 @@
-import { authenticate } from '../../../auth/authenticate.js';
+import { withApifyCaller } from '../../../provider/apify/apify.execution-context.js';
+import { authenticate, authenticatedUserId } from '../../../auth/authenticate.js';
 import { instagramPostRequestSchema } from './instagram.post.schemas.js';
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
@@ -17,7 +18,9 @@ export async function getPostInstagram(app: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const response = await getInstagramPost(request.body);
+      const response = await withApifyCaller(authenticatedUserId(request), () =>
+        getInstagramPost(request.body),
+      );
       return reply.status(200).send({ response });
     },
   );

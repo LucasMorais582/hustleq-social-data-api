@@ -1,0 +1,23 @@
+[Unit]
+Description=HustleQ Social Data API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hustleq
+Group=hustleq
+WorkingDirectory=/opt/hustleq-social-data-api
+EnvironmentFile=/etc/hustleq/social-data-api.env
+ExecStart=/usr/bin/node /opt/hustleq-social-data-api/dist/server.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=300
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

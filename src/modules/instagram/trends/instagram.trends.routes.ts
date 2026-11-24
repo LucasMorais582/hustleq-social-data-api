@@ -1,4 +1,5 @@
-import { authenticate } from '../../../auth/authenticate.js';
+import { withApifyCaller } from '../../../provider/apify/apify.execution-context.js';
+import { authenticate, authenticatedUserId } from '../../../auth/authenticate.js';
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { instagramTrendsRequestSchema } from './instagram.trends.schemas.js';
@@ -19,7 +20,9 @@ export async function getTrendsInstagram(app: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const response = await getInstagramTrends(request.body);
+      const response = await withApifyCaller(authenticatedUserId(request), () =>
+        getInstagramTrends(request.body),
+      );
       return reply.status(200).send({ response });
     },
   );

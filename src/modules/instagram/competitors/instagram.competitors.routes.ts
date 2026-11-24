@@ -1,3 +1,4 @@
+import { withApifyCaller } from '../../../provider/apify/apify.execution-context.js';
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { authenticate, authenticatedUserId } from '../../../auth/authenticate.js';
@@ -34,10 +35,12 @@ export async function instagramCompetitorRoutes(app: FastifyInstance) {
       },
     },
     async (request) => ({
-      response: await previewInstagramCompetitor(
-        request.params.instagramProfileId,
-        request.body.username,
-        authenticatedUserId(request),
+      response: await withApifyCaller(authenticatedUserId(request), () =>
+        previewInstagramCompetitor(
+          request.params.instagramProfileId,
+          request.body.username,
+          authenticatedUserId(request),
+        ),
       ),
     }),
   );

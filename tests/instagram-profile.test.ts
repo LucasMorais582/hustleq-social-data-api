@@ -1,3 +1,7 @@
+vi.mock('../src/provider/apify/apify.execution.repository.js', () => ({
+  beginProviderExecution: async () => ({ id: 'legacy-test-run' }),
+  updateProviderExecution: async () => ({}),
+}));
 vi.mock('../src/modules/instagram/profile/instagram.profile.repository.js', () => ({
   saveProfileCollection: vi.fn().mockResolvedValue({ instagramProfileId: 'internal' }),
 }));
