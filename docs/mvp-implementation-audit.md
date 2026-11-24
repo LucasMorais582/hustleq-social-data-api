@@ -31,12 +31,12 @@ apenas por ter uma rota parecida: faltam contratos, autorização ou jobs.
 Situacao atualizada em 23/11/2026: as oito tabelas (sete do guia e a fila
 InstagramSyncJob autorizada pelo usuario) estao modeladas e suas migrations
 foram aplicadas ao Supabase de desenvolvimento. As operacoes atomicas da fila
-e os executores Initial Profile Sync e Post Refresh estao implementados. O worker
+e os executores Initial Profile Sync, Post Refresh e Discover Search estao implementados. O worker
 inicia separado e desabilitado por padrao; os endpoints 2, 8, 10 e 14 estao
-conectados. Daily/Watched/Discover ainda faltam. Ha persistencia, normalizacao e
+conectados. Daily/Watched ainda faltam. Ha persistencia, normalizacao e
 guards JWT de usuario/servico. A busca 1 esta implementada;
 leituras 5-7 e 9 usam OWNER/COMPETITOR, e os fluxos internos 2-4/11 estao ligados.
-O inventario soma 15 endpoints implementados e 1 pendente. Cache,
+O inventario soma 16 endpoints implementados; nenhum endpoint ausente. Cache,
 custos completos e demais jobs ainda faltam. As secoes posteriores registram
 as etapas ja concluidas e os limites da validacao.
 
@@ -57,7 +57,7 @@ as etapas ja concluidas e os limites da validacao.
 | Coleta diaria                      | Parcial                                                                     | Prazo aplicado; faltam 12 posts/4h, elegibilidade MVP e jobs |
 | Post Refresh                       | Executor duravel ligado aos endpoints 8/10; source, custos, retries e lease | Benchmark real dos Actors, deploy e integracao externa       |
 | Custos Apify                       | Endpoint 12 e ledger dos fluxos rastreados prontos                          | Demais fluxos, reconciliacao geral e lotes                   |
-| Discover/cache                     | Estrutura/provider prontos                                                  | Endpoint 16, cache compartilhado e aquecimento               |
+| Discover/cache                     | Endpoint 16 e executor prontos; cache compartilhado 24h                     | Deploy, aquecimento pelo backend e validacao real            |
 | Deploy e integracao com backend    | VPS confirmada, deploy pendente                                             | Configurar API/worker e validar no ambiente acordado         |
 
 ## Inventário dos 16 endpoints
@@ -66,24 +66,24 @@ Os caminhos do guia não incluem o prefixo. Hoje as rotas de negócio usam
 `/api/v1`; confirmar esse prefixo com o backend principal. As rotas legadas
 usam `{ response: ... }`; as novas leituras 5-7 retornam objetos diretos como no guia.
 
-| #   | Endpoint do guia                                                | Situação no código                                                     | Trabalho pendente                                                                                                     |
-| --- | --------------------------------------------------------------- | ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| 1   | GET /instagram/profiles/search                                  | Pronto no codigo: previa sem cadastro/reserva, ownership e ProviderRun | Validar contrato/SLA/custo reais e migrar consumidor legado                                                           |
-| 2   | POST /internal/instagram/profiles                               | Pronto no codigo: reserva + lookup reaproveitado + Initial Sync        | Validacao externa de contrato, SLA e cobranca                                                                         |
-| 3   | POST /internal/instagram/profiles/:profileId/owner              | Pronto nesta etapa                                                     | Validacao externa com o backend principal                                                                             |
-| 4   | DELETE /internal/instagram/profiles/:profileId/reservation      | Pronto nesta etapa                                                     | Validacao externa com o backend principal                                                                             |
-| 5   | GET /instagram/profiles/:profileId                              | Pronto nesta etapa                                                     | Validacao externa; isVerified pode ser null por decisao do usuario                                                    |
-| 6   | GET /instagram/profiles/:profileId/posts                        | Pronto nesta etapa                                                     | Validacao externa com o adaptador                                                                                     |
-| 7   | GET /instagram/profiles/:profileId/snapshots                    | Pronto nesta etapa                                                     | Validacao externa com o adaptador                                                                                     |
-| 8   | GET /instagram/posts/:postId                                    | Pronto: 200/202, frescor 24h e on_open duravel                         | Validacao externa e worker no deploy                                                                                  |
-| 9   | GET /instagram/posts/:postId/metrics                            | Pronto nesta etapa                                                     | Validacao externa com o adaptador                                                                                     |
-| 10  | POST /instagram/posts/:postId/refresh                           | Pronto: fila, deduplicacao, teto diario UTC e snapshot                 | Validacao externa e worker no deploy                                                                                  |
-| 11  | PATCH /internal/instagram/profiles/:profileId/monitoring        | Pronto nesta etapa                                                     | Filtro no cron atual pronto; aplicar tambem aos futuros jobs MVP                                                      |
-| 12  | GET /internal/costs                                             | Pronto: mes UTC, agrupamentos e totais anulaveis                       | Instrumentacao completa do ledger e conciliacao pendentes                                                             |
-| 13  | GET /instagram/profiles/:profileId/competitors                  | Pronto: dono, listagem no envelope existente                           | Validacao externa com o adaptador                                                                                     |
-| 14  | POST /instagram/profiles/:profileId/competitors                 | Pronto: username, regras e Initial Sync atomico                        | Worker habilitado no deploy e validacao externa                                                                       |
-| 15  | DELETE /instagram/profiles/:profileId/competitors/:competitorId | Pronto: ID da relacao, dono, 204, historico preservado                 | Validacao externa; Watched diario ainda pendente                                                                      |
-| 16  | GET /instagram/discover                                         | Ausente; trends/search tem o Actor reaproveitável                      | Nicho/cidade/query, cache compartilhado 24h, contrato plano, fromCache, aquecimento com serviço e atribuição de custo |
+| #   | Endpoint do guia                                                | Situação no código                                                     | Trabalho pendente                                                      |
+| --- | --------------------------------------------------------------- | ---------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| 1   | GET /instagram/profiles/search                                  | Pronto no codigo: previa sem cadastro/reserva, ownership e ProviderRun | Validar contrato/SLA/custo reais e migrar consumidor legado            |
+| 2   | POST /internal/instagram/profiles                               | Pronto no codigo: reserva + lookup reaproveitado + Initial Sync        | Validacao externa de contrato, SLA e cobranca                          |
+| 3   | POST /internal/instagram/profiles/:profileId/owner              | Pronto nesta etapa                                                     | Validacao externa com o backend principal                              |
+| 4   | DELETE /internal/instagram/profiles/:profileId/reservation      | Pronto nesta etapa                                                     | Validacao externa com o backend principal                              |
+| 5   | GET /instagram/profiles/:profileId                              | Pronto nesta etapa                                                     | Validacao externa; isVerified pode ser null por decisao do usuario     |
+| 6   | GET /instagram/profiles/:profileId/posts                        | Pronto nesta etapa                                                     | Validacao externa com o adaptador                                      |
+| 7   | GET /instagram/profiles/:profileId/snapshots                    | Pronto nesta etapa                                                     | Validacao externa com o adaptador                                      |
+| 8   | GET /instagram/posts/:postId                                    | Pronto: 200/202, frescor 24h e on_open duravel                         | Validacao externa e worker no deploy                                   |
+| 9   | GET /instagram/posts/:postId/metrics                            | Pronto nesta etapa                                                     | Validacao externa com o adaptador                                      |
+| 10  | POST /instagram/posts/:postId/refresh                           | Pronto: fila, deduplicacao, teto diario UTC e snapshot                 | Validacao externa e worker no deploy                                   |
+| 11  | PATCH /internal/instagram/profiles/:profileId/monitoring        | Pronto nesta etapa                                                     | Filtro no cron atual pronto; aplicar tambem aos futuros jobs MVP       |
+| 12  | GET /internal/costs                                             | Pronto: mes UTC, agrupamentos e totais anulaveis                       | Instrumentacao completa do ledger e conciliacao pendentes              |
+| 13  | GET /instagram/profiles/:profileId/competitors                  | Pronto: dono, listagem no envelope existente                           | Validacao externa com o adaptador                                      |
+| 14  | POST /instagram/profiles/:profileId/competitors                 | Pronto: username, regras e Initial Sync atomico                        | Worker habilitado no deploy e validacao externa                        |
+| 15  | DELETE /instagram/profiles/:profileId/competitors/:competitorId | Pronto: ID da relacao, dono, 204, historico preservado                 | Validacao externa; Watched diario ainda pendente                       |
+| 16  | GET /instagram/discover                                         | Pronto: nicho/cidade/query, cache 24h, 200 aguardando worker e custos  | Validacao externa, timeout do backend/proxy e aquecimento pelo backend |
 
 O usuario aprovou na etapa M substituir o comprovante de confirmacao por body
 username, manter competitorId como ID da relacao e preservar o envelope da
@@ -118,7 +118,7 @@ ownerUserId e atribuido explicitamente pelo endpoint interno 3, nunca por efeito
 | InstagramCompetitor         | Relacao, endedAt, historico e limite de tres ativos; endpoints 13–15           | Elegibilidade do Watched Sync                                |
 | InstagramPost               | Conteudo, lastCollectedAt e frescor 200/202 nos endpoints 6/8                  | Daily/Watched ainda pendentes                                |
 | InstagramPostMetricSnapshot | Historico imutavel; source initial/on_open/refresh, views BigInt e likesHidden | Daily/Watched e validacao real                               |
-| DiscoverCache               | Modelo e migration aplicados                                                   | Endpoint, chave normalizada, TTL e coordenacao de buscas     |
+| DiscoverCache               | Endpoint, chave normalizada, TTL 24h e coordenacao de buscas                   | Validacao externa e operacao no deploy                       |
 | ProviderRun                 | Registrado pelo worker Initial com custo conhecido/null e referencia por etapa | Demais fluxos, lotes, custos e conciliacao de inicio incerto |
 | InstagramSyncJob            | Fila e worker Initial com retomada de lease e ids Apify persistidos            | Enqueue pelos endpoints MVP e demais executores              |
 
@@ -140,7 +140,7 @@ ProviderRun e depois criar uma linha nao impede execucoes concorrentes.
 | Daily Profile Sync   | Cron simples as 6h de Nova York; respeita monitoringUntil e atualiza ate dez posts observados | Passar para 4h após confirmação, elegibilidade dono/monitoringUntil, 12 posts, Reels, lotes, ProviderRun, retry e conclusão antes das 6h |
 | Watched Sync         | Todos os perfis salvos entram no cron atual, inclusive relações encerradas                    | Coletar acompanhados por relações ativas, após Daily, deduplicar perfis compartilhados, custos e tentativas                              |
 | Post Refresh         | Executor duravel ligado aos endpoints 8/10; source, custos, retries e lease                   | Benchmark real dos Actors, deploy e integracao externa                                                                                   |
-| Discover Search      | Trends usa o keyword Actor sem cache                                                          | Cache 24h, consulta ampla até 50 posts/30dias, fromCache, custos, aquecimento e tentativas                                               |
+| Discover Search      | Worker Seemu, 50 posts/30 dias, cache, fromCache, custos, retries e fencing                   | Validacao real, deploy e aquecimento pelo backend                                                                                        |
 
 O cron atual roda dentro da requisição, sequencialmente, com trava somente no
 processo e orçamento de 180s para iniciar coletas, maxDuration 300s. Não há fila,
@@ -917,3 +917,52 @@ foi executado e nenhuma linha do schema public foi alterada.
 Estado: 15 endpoints implementados, somente o endpoint 16 Discover pendente.
 Ainda faltam Daily/Watched, cobertura/conciliação completa de custos, deploy e
 validacao externa de contratos, latencia e cobranca real.
+
+## Etapa P — Discover (endpoint 16)
+
+O usuario confirmou: manter 200 aguardando a busca, exigir niche/city e query
+opcional, retornar erro quando atualizar cache vencido falhar (sem fallback stale).
+O endpoint usa token de usuario ou servico exato, este ultimo para aquecimento.
+
+Nicho/cidade/query sao normalizados sem acentos, em minusculas e com espacos
+simples. Query vazia equivale a null. Chave interna e uma tupla JSON, sem colisoes
+por delimitadores. O keyword enviado e a concatenacao dos tres componentes em
+uma unica frase. Cada componente tem limite normalizado de 200 caracteres.
+
+Cache com idade [0,24h) usa leitura; ausencia, idade >=24h ou data futura provoca
+enqueue. Advisory lock por chave com transacao ReadCommitted coordena usuarios
+concorrentes. Job ativo e compartilhado sem trocar solicitante/payload. Somente
+a chamada criadora responde fromCache false; chamadas que esperam outra busca
+respondem true. Cota comercial de vinte/mês continua no backend principal.
+
+O job DISCOVER_SEARCH e atendido pelo worker separado. Usa Seemu keywords com um
+termo combinado, maxPostsPerKeyword 50, postType all, minLikes 0, dateFrom 30 days.
+Contrato conferido no OpenAPI oficial em 23/11/2026:
+https://apify.com/seemuapps/instagram-keyword-posts-scraper/api/openapi.
+Nao reutiliza filtro de 1000 likes sem local do Trends. Normaliza campos do guia,
+curtidas ocultas e tipos, elimina posts sem data/futuros/antigos e duplicados,
+ordena por data e limita a cinquenta. Preserva campos desconhecidos null.
+
+So grava DiscoverCache e o ledger de jobs/ProviderRun, nao entidades de perfil,
+post ou snapshots monitorados. Custo atribuido ao solicitante inicial; aquecimento
+por servico usa null. Cache e conclusao de tarefa sao atomicos sob lease/token.
+Tres tentativas totais, com esperas de 1/5min; retomada consulta runs conhecidos,
+sem novo POST cego em inicio incerto. Cache vencido nao e apagado nem servido na
+falha. Erro final 429/503 com mensagem sanitizada. Avisos nao viram posts vazios.
+
+HTTP aguarda por polling ate concluir ou vencer INSTAGRAM_DISCOVER_WAIT_MS,
+padrao 1320000 (22min), faixa 1000–3600000. Esse limite nao e garantia de SLA em
+fila carregada. Worker precisa estar ativo; API nao executa Actor durante a
+requisicao. Timeout/desconexao interrompe espera, sem remover job. Alinhar timeout
+do backend/proxy; 202 nao foi introduzido. Cache publicado depois pode ser lido
+em nova chamada. Aquecimento diario segue responsabilidade do backend principal,
+sem novo cron nesta etapa. Nenhum Actor pago foi executado para testar.
+
+Validacao: 736 testes locais passaram (9 integracoes opt-in ficam fora de npm
+test). Typecheck, lint, format:check e build passaram. O teste PostgreSQL
+dedicado passou em cerca de 89 segundos, com concorrencia real de usuarios,
+cache compartilhado, custos/atribuicao, aquecimento service, tres falhas sem
+servir/sobrescrever cache vencido e fencing/retomada de lease. Schema temporario
+removido e ausencia confirmada; nenhum Actor real ou linha de public alterados. Estado: 16 endpoints
+implementados; Daily/Watched, cobertura/conciliação completa de custos, deploy e
+validacao externa de contratos/latencia/cobranca continuam pendentes.

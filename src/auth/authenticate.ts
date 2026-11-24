@@ -66,3 +66,24 @@ export function authenticatedUserId(request: FastifyRequest) {
   // O onRequest authenticate já verificou a assinatura e o papel do token.
   return identitySchema.parse(request.user).sub;
 }
+
+// Discover também permite aquecimento pelo backend, com o mesmo papel de serviço das rotas internas.
+export async function authenticateUserOrService(request: FastifyRequest, reply: FastifyReply) {
+  try {
+    const identity = await verifyIdentity(request);
+    if (
+      (identity.scope === undefined && identity.sub !== 'hustleq-main') ||
+      (identity.scope === 'service' && identity.sub === 'hustleq-main')
+    )
+      return;
+    throw new ApiError(403, 'FORBIDDEN', 'Esta rota exige token de usuário ou de serviço');
+  } catch (error) {
+    if (error instanceof ApiError && error.statusCode === 401)
+      reply.header('WWW-Authenticate', 'Bearer');
+    throw error;
+  }
+}
+export function authenticatedCallerUserId(request: FastifyRequest): string | null {
+  const identity = identitySchema.parse(request.user);
+  return identity.scope === 'service' && identity.sub === 'hustleq-main' ? null : identity.sub;
+}

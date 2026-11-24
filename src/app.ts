@@ -1,4 +1,5 @@
 import { instagramPostReadRoutes } from './modules/instagram/post/instagram.post.read.routes.js';
+import { instagramDiscoverRoutes } from './modules/instagram/discover/instagram.discover.routes.js';
 import { instagramPostRefreshRoutes } from './modules/instagram/post/instagram.post.refresh.routes.js';
 import { instagramCostsRoutes } from './modules/instagram/costs/instagram.costs.routes.js';
 import { instagramProfileInternalRoutes } from './modules/instagram/profile/instagram.profile.internal.routes.js';
@@ -108,6 +109,7 @@ export function buildApp() {
   });
 
   app.register(instagramPostReadRoutes, { prefix: '/api/v1' });
+  app.register(instagramDiscoverRoutes, { prefix: '/api/v1' });
   app.register(instagramPostRefreshRoutes, { prefix: '/api/v1' });
   app.register(instagramCostsRoutes, { prefix: '/api/v1' });
   app.register(instagramProfileInternalRoutes, { prefix: '/api/v1' });

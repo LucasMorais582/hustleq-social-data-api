@@ -1,6 +1,7 @@
 import { setTimeout } from 'node:timers/promises';
 import { env } from './config/env.js';
 import { runPostRefreshWorkerOnce } from './modules/instagram/jobs/instagram.post-refresh.service.js';
+import { runDiscoverWorkerOnce } from './modules/instagram/jobs/instagram.discover.service.js';
 import { getPrismaClient } from './provider/database/prisma.client.js';
 import {
   initialSyncErrorCode,
@@ -30,6 +31,12 @@ async function main() {
           const postResult = await runPostRefreshWorkerOnce(client);
           processed = processed || postResult !== null;
           if (postResult) console.info(JSON.stringify({ event: 'post_refresh', ...postResult }));
+        }
+        if (!shutdown.signal.aborted) {
+          const discoverResult = await runDiscoverWorkerOnce(client);
+          processed = processed || discoverResult !== null;
+          if (discoverResult)
+            console.info(JSON.stringify({ event: 'discover_search', ...discoverResult }));
         }
       } catch (error) {
         console.error(

@@ -423,3 +423,19 @@ RUN_DATABASE_TESTS=true npx vitest run tests/instagram-post-refresh.integration.
 O teste usa schema próprio, HTTP/worker reais e transporte Apify simulado. Verifica
 deduplicação, três tentativas, preservação dos snapshots, concorrência no teto,
 dia anterior e rollback por lease vencido. Não altera registros de public.
+
+## Discover — cache e fila sem migration nova
+
+DiscoverCache guarda até cinquenta posts normalizados por chave compartilhada,
+com fetchedAt do relógio PostgreSQL. InstagramSyncJob coordena misses da mesma
+chave via activeKey único e advisory lock. Cache e conclusão do job são atômicos,
+sob token/lease válido. User/InstagramProfile/InstagramPost não são criados.
+
+```bash
+RUN_DATABASE_TESTS=true npx vitest run tests/instagram-discover.integration.test.ts
+```
+
+Teste em schema isolado com HTTP/worker reais e Apify simulada: chamadas de dois
+usuários compartilham busca/custo; aquecimento service usa userId null; três
+falhas preservam cache vencido sem retorná-lo; token de worker antigo não publica
+cache e a retomada mantém a tentativa. O schema é removido e a ausência conferida.

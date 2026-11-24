@@ -25,7 +25,7 @@ export async function withOwnedSync<T>(
   owner: InitialJobOwner,
   work: (tx: Prisma.TransactionClient, job: InstagramSyncJob) => Promise<T>,
   client: PrismaClient = getPrismaClient(),
-  type: 'INITIAL_PROFILE_SYNC' | 'POST_REFRESH' = 'INITIAL_PROFILE_SYNC',
+  type: 'INITIAL_PROFILE_SYNC' | 'POST_REFRESH' | 'DISCOVER_SEARCH' = 'INITIAL_PROFILE_SYNC',
 ) {
   for (let attempt = 1; ; attempt++) {
     try {

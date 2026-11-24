@@ -808,3 +808,86 @@ nem alteração do cron diário. Erros: 404 POST_NOT_FOUND, 403 FORBIDDEN,
 429 MANUAL_REFRESH_LIMIT_REACHED, além de 400/401/500; URL salva sem suporte retorna
 503 PROVIDER_UNAVAILABLE. Queries extras e body com parâmetros são rejeitados.
 Nenhuma chamada Apify é feita durante a requisição HTTP.
+
+## Discover — endpoint 16
+
+```http
+GET /api/v1/instagram/discover?niche=Brazilian%20food&city=Newark%2C%20NJ&query=
+Authorization: Bearer TOKEN
+```
+
+`niche` e `city` são obrigatórios; `query` é opcional. Cada componente normalizado
+aceita até 200 caracteres (entrada bruta até 400). Não recebe filtros de tipo,
+período, mínimo de likes ou paginação: o app filtra os resultados localmente.
+Exige token de usuário; também aceita o token de serviço exato para aquecimento
+pelo backend principal. Nenhuma tabela User ou cadastro de perfil é necessário.
+
+A busca combina nicho, cidade e query em **um termo**, nessa ordem. Por exemplo,
+`brazilian food newark, nj feijoada`. O Actor recebe um item em keywords,
+maxPostsPerKeyword 50, postType all, minLikes 0 e dateFrom "30 days", conforme o
+[OpenAPI da Seemu](https://apify.com/seemuapps/instagram-keyword-posts-scraper/api/openapi).
+Não aplica a regra de mil likes para posts sem localização do Trends legado.
+É pesquisa textual; não garante localização geográfica exata nem cobertura de
+50 posts válidos. Posts sem data, futuros ou fora dos 30 dias da coleta são
+excluídos, duplicados removidos e o resultado ordenado por data decrescente.
+
+Cache compartilhado por 24 horas entre todos os usuários. Normaliza caixa,
+acentos e espaços; query vazia vira null. A chave usa a tupla JSON dos três
+componentes, evitando colisões de delimitadores. FetchedAt usa relógio do banco.
+Com menos de 24 horas, retorna o cache sem Actor novo. Com 24 horas exatas,
+cache ausente ou data futura, cria/reutiliza um job Discover Search. Uma trava
+no banco por chave coordena chamadas simultâneas, inclusive de usuários distintos.
+
+A resposta é 200 com objeto direto:
+
+```json
+{
+  "fromCache": false,
+  "fetchedAt": "2026-11-23T12:00:00.000Z",
+  "niche": "brazilian food",
+  "city": "newark, nj",
+  "query": null,
+  "posts": []
+}
+```
+
+Posts usam os campos do guia: instagramPostId string, url, type
+REEL/CAROUSEL/IMAGE, caption, hashtags, displayUrl, timestamp, ownerUsername,
+ownerFullName, likesCount, likesHidden, commentsCount e viewsCount. Indisponíveis
+ficam null; hashtags são normalizadas; -1 em likes vira null/likesHidden true;
+views só são expostas para Reels. Os dados são gravados somente em DiscoverCache,
+sem criar perfis, posts ou snapshots de métricas no domínio monitorado.
+
+A chamada que **cria** a busca retorna fromCache false; quem reutiliza o cache
+ou espera o job de outra chamada retorna true. Assim uma busca compartilhada não
+consome várias unidades da cota do backend principal. A API não implementa a cota
+comercial de vinte buscas/mês: o backend a conta a partir de fromCache. Custo de
+Actor fica no ProviderRun do primeiro solicitante; aquecimento por serviço usa
+userId null, nunca hustleq-main como usuário fictício. Falhas também são registradas.
+
+Por decisão confirmada, cache miss aguarda o resultado, sem resposta 202.
+**O worker precisa estar executando em processo separado**, com
+INSTAGRAM_WORKER_ENABLED=true. Configure:
+
+```dotenv
+INSTAGRAM_DISCOVER_WAIT_MS=1320000
+```
+
+O padrão é 22 minutos, ajustável entre um segundo e uma hora. Esse orçamento
+acomoda buscas/retries demorados, mas não garante conclusão em fila congestionada.
+Alinhe o timeout do backend/proxy na VPS; não há garantia de espera equivalente
+em plataformas serverless. O JWT é validado na entrada da requisição. Desconexão
+ou timeout interrompe a espera HTTP, sem apagar nem duplicar a tarefa durável.
+Se a tarefa concluir depois, a próxima chamada poderá aproveitar o cache.
+
+O job tem três tentativas totais, esperas de um e cinco minutos e recuperação de
+lease sem repetir um Actor conhecido. Publicação do cache e conclusão do job são
+atômicas e protegidas pelo token de posse. Cache vencido permanece armazenado se
+a atualização falhar, mas **não é devolvido**. Falha final retorna 429 RATE_LIMITED
+ou 503 PROVIDER_UNAVAILABLE, com mensagem do provider sanitizada. Dataset só de
+avisos não vira sucesso vazio. Dataset genuinamente vazio pode gerar posts [].
+
+Nenhum agendamento novo foi criado para aquecimento: o backend principal chama
+a mesma rota com token de serviço. Trends/search mantém seu contrato e continua
+sem persistência. Latência, custo e cobertura reais do Actor ainda precisam de
+validação autorizada; os testes desta etapa simulam o transporte Apify.
