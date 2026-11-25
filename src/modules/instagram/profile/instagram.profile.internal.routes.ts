@@ -9,6 +9,8 @@ import {
 } from '../shared/instagram.read.schemas.js';
 import {
   assignProfileOwnerSchema,
+  removeProfileOwnerQuerySchema,
+  removeProfileOwnerBodySchema,
   assignedProfileOwnerResponseSchema,
   clearProfileReservationSchema,
   updateProfileMonitoringSchema,
@@ -18,6 +20,7 @@ import {
 } from './instagram.profile.internal.schemas.js';
 import {
   assignInstagramProfileOwner,
+  removeInstagramProfileOwner,
   clearInstagramProfileReservation,
   updateInstagramProfileMonitoring,
 } from './instagram.profile.internal.service.js';
@@ -83,6 +86,22 @@ export async function instagramProfileInternalRoutes(app: FastifyInstance) {
       },
     },
     (request) => assignInstagramProfileOwner(request.params.profileId, request.body.userId),
+  );
+  route.delete(
+    '/internal/instagram/profiles/:profileId/owner',
+    {
+      schema: {
+        ...base,
+        summary: 'Remove o dono atual, encerra sua lista de acompanhados e cancela jobs pendentes',
+        querystring: removeProfileOwnerQuerySchema,
+        body: removeProfileOwnerBodySchema,
+        response: { 204: z.null(), 409: readErrorSchema, ...errors },
+      },
+    },
+    async (request, reply) => {
+      await removeInstagramProfileOwner(request.params.profileId, request.query.userId);
+      return reply.code(204).send(null);
+    },
   );
   route.delete(
     '/internal/instagram/profiles/:profileId/reservation',

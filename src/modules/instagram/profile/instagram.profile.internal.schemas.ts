@@ -38,3 +38,7 @@ export const assignedProfileOwnerResponseSchema = z.object({
 });
 // Fastify pode representar o body ausente do DELETE como null; ambos são vazios.
 export const clearProfileReservationSchema = z.strictObject({}).nullish();
+
+export const removeProfileOwnerQuerySchema = assignProfileOwnerSchema;
+// A remoção aceita somente a query; body com campos deve ser rejeitado.
+export const removeProfileOwnerBodySchema = z.null().optional();

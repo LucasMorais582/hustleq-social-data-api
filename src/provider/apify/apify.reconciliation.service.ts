@@ -28,7 +28,7 @@ export async function reconcileProviderRuns(
   const rows = await client.providerRun.findMany({
     where: {
       apifyRunId: { not: null },
-      OR: [{ status: 'running' }, { costUsd: null }],
+      OR: [{ status: 'running' }, { costUsd: null }, { costUsd: 0 }],
       ...(anchor
         ? {
             AND: [

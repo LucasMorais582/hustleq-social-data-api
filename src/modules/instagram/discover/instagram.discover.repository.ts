@@ -28,6 +28,24 @@ export function beginDiscover(
         select: { id: true },
       });
       if (existing) return { cache: null, jobId: existing.id, created: false };
+      const recentFailure = await tx.instagramSyncJob.findFirst({
+        where: {
+          type: 'DISCOVER_SEARCH',
+          status: 'FAILED',
+          payload: { path: ['discover', 'key'], equals: key },
+          finishedAt: { gt: new Date(clock.now.getTime() - 60000) },
+        },
+        orderBy: [{ finishedAt: 'desc' }, { id: 'desc' }],
+        select: { id: true, payload: true },
+      });
+      if (recentFailure)
+        return {
+          cache: null,
+          jobId: recentFailure.id,
+          created: false,
+          failed: true as const,
+          payload: recentFailure.payload,
+        };
       const job = await tx.instagramSyncJob.create({
         data: {
           type: 'DISCOVER_SEARCH',
@@ -43,30 +61,6 @@ export function beginDiscover(
     },
     {
       isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted,
-      maxWait: 10000,
-      timeout: 15000,
-    },
-  );
-}
-export function readDiscoverProgress(
-  key: string,
-  jobId: string,
-  client: PrismaClient = getPrismaClient(),
-) {
-  return client.$transaction(
-    async (tx) => {
-      const job = await tx.instagramSyncJob.findUniqueOrThrow({
-        where: { id: jobId },
-        select: { status: true, payload: true },
-      });
-      const cache =
-        job.status === 'SUCCEEDED' ? await tx.discoverCache.findUnique({ where: { key } }) : null;
-      const [clock] = await tx.$queryRaw<{ now: Date }[]>`SELECT clock_timestamp() AS now`;
-      if (!clock) throw new Error('DATABASE_CLOCK_UNAVAILABLE');
-      return { job, cache: freshDiscoverCache(cache, clock.now) ? cache : null };
-    },
-    {
-      isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
       maxWait: 10000,
       timeout: 15000,
     },

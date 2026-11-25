@@ -3,7 +3,6 @@ import { z } from 'zod';
 
 const envSchema = z.object({
   INSTAGRAM_DAILY_BATCH_SIZE: z.coerce.number().int().min(1).max(10).default(5),
-  INSTAGRAM_DISCOVER_WAIT_MS: z.coerce.number().int().min(1000).max(3600000).default(1320000),
   INSTAGRAM_MANUAL_REFRESH_DAILY_LIMIT: z.coerce.number().int().min(1).max(1000).default(10),
   INSTAGRAM_WORKER_ENABLED: z
     .enum(['true', 'false'])

@@ -24,53 +24,55 @@ pendências; não representa autorização para implementar todas elas de uma ve
 
 ## Resultado da comparação
 
-Situacao atualizada em 24/11/2026: os 16 endpoints estao implementados no
+Situacao atualizada em 25/11/2026: os 16 endpoints originais e a remocao de dono adicional estao implementados no
 codigo, assim como os cinco executores (Initial, Daily, Watched, Post Refresh e
 Discover). As oito tabelas (sete do guia e a fila InstagramSyncJob autorizada)
 estao modeladas, com migrations aplicadas no Supabase de desenvolvimento.
-Isso ainda nao equivale a integracao/deploy concluido: faltam validar os Actors,
-o adaptador do backend, custos/SLA reais e a operacao na VPS.
+Em 25/11 o usuario informou worker no Railway, cron no backend e fluxo de
+convite validado ponta a ponta. As alteracoes desta etapa ainda precisam ser
+publicadas/validadas pelo time; custos/SLA reais e demais fluxos exigem verificacao externa.
 
 ## Funcionalidades - acompanhamento atual
 
-| Funcionalidade                          | Situacao                                             | O que falta                                   |
-| --------------------------------------- | ---------------------------------------------------- | --------------------------------------------- |
-| Tabelas, IDs String e migrations        | Prontas no desenvolvimento                           | Alinhar CUID com o consumidor                 |
-| JWT, OWNER/COMPETITOR e token service   | Prontos nas rotas MVP                                | Integracao externa                            |
-| Convites, reserva, dono e monitoramento | Endpoints 1–5/11 implementados                       | Validacao externa de contrato/SLA             |
-| Leituras de posts e historico           | Endpoints 6–9 implementados                          | Validar adaptador                             |
-| Fila duravel e cinco executores         | Implementados                                        | Operacao API/worker/scheduler na VPS          |
-| Coleta diaria propria e acompanhada     | Daily (Q) e Watched (R), 12 posts e intervalo 20h    | Actors/SLA/custo reais                        |
-| Contas acompanhadas                     | Endpoints 13–15 e sincronizacao implementados        | Integracao externa                            |
-| Post Refresh                            | Fila, retries, deduplicacao e teto UTC               | Benchmark dos Actors e deploy                 |
-| Custos Apify                            | Ledger MVP/legado e conciliacao manual implementados | Conferencia de inicios sem ID e cobranca real |
-| Discover                                | Endpoint 16, cache 24h e executor                    | Aquecimento pelo backend e validacao externa  |
-| Deploy e integracao                     | VPS confirmada                                       | Configurar e validar com o backend principal  |
+| Funcionalidade                          | Situacao                                             | O que falta                                        |
+| --------------------------------------- | ---------------------------------------------------- | -------------------------------------------------- |
+| Tabelas, IDs String e migrations        | Prontas no desenvolvimento                           | Alinhar CUID com o consumidor                      |
+| JWT, OWNER/COMPETITOR e token service   | Prontos nas rotas MVP                                | Integracao externa                                 |
+| Convites, reserva, dono e monitoramento | Endpoints 1–5/11/17 implementados                    | Validacao externa de contrato/SLA                  |
+| Leituras de posts e historico           | Endpoints 6–9 implementados                          | Validar adaptador                                  |
+| Fila duravel e cinco executores         | Implementados                                        | Worker Railway informado; validar alteracoes novas |
+| Coleta diaria propria e acompanhada     | Daily (Q) e Watched (R), 12 posts e intervalo 20h    | Actors/SLA/custo reais                             |
+| Contas acompanhadas                     | Endpoints 13–15 e sincronizacao implementados        | Integracao externa                                 |
+| Post Refresh                            | Fila, retries, deduplicacao e teto UTC               | Benchmark dos Actors e deploy                      |
+| Custos Apify                            | Ledger MVP/legado e conciliacao manual implementados | Conferencia de inicios sem ID e cobranca real      |
+| Discover                                | Endpoint 16, cache 24h e executor                    | Aquecimento pelo backend e validacao externa       |
+| Deploy e integracao                     | Worker Railway e cron no backend informados em 25/11 | Validar os novos contratos com o backend           |
 
-## Inventário dos 16 endpoints
+## Inventário dos 17 endpoints (16 do guia e remoção de dono adicional)
 
 Os caminhos do guia não incluem o prefixo. Hoje as rotas de negócio usam
 `/api/v1`; confirmar esse prefixo com o backend principal. As rotas legadas
 usam `{ response: ... }`; as novas leituras 5-7 retornam objetos diretos como no guia.
 
-| #   | Endpoint do guia                                                | Situação no código                                                     | Trabalho pendente                                                      |
-| --- | --------------------------------------------------------------- | ---------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| 1   | GET /instagram/profiles/search                                  | Pronto no codigo: previa sem cadastro/reserva, ownership e ProviderRun | Validar contrato/SLA/custo reais e migrar consumidor legado            |
-| 2   | POST /internal/instagram/profiles                               | Pronto no codigo: reserva + lookup reaproveitado + Initial Sync        | Validacao externa de contrato, SLA e cobranca                          |
-| 3   | POST /internal/instagram/profiles/:profileId/owner              | Pronto nesta etapa                                                     | Validacao externa com o backend principal                              |
-| 4   | DELETE /internal/instagram/profiles/:profileId/reservation      | Pronto nesta etapa                                                     | Validacao externa com o backend principal                              |
-| 5   | GET /instagram/profiles/:profileId                              | Pronto nesta etapa                                                     | Validacao externa; isVerified pode ser null por decisao do usuario     |
-| 6   | GET /instagram/profiles/:profileId/posts                        | Pronto nesta etapa                                                     | Validacao externa com o adaptador                                      |
-| 7   | GET /instagram/profiles/:profileId/snapshots                    | Pronto nesta etapa                                                     | Validacao externa com o adaptador                                      |
-| 8   | GET /instagram/posts/:postId                                    | Pronto: 200/202, frescor 24h e on_open duravel                         | Validacao externa e worker no deploy                                   |
-| 9   | GET /instagram/posts/:postId/metrics                            | Pronto nesta etapa                                                     | Validacao externa com o adaptador                                      |
-| 10  | POST /instagram/posts/:postId/refresh                           | Pronto: fila, deduplicacao, teto diario UTC e snapshot                 | Validacao externa e worker no deploy                                   |
-| 11  | PATCH /internal/instagram/profiles/:profileId/monitoring        | Pronto nesta etapa                                                     | Elegibilidade aplicada a Daily e Watched; validar integracao externa   |
-| 12  | GET /internal/costs                                             | Pronto: mes UTC, agrupamentos e totais anulaveis                       | Ledger/conciliacao implementados; validar cobranca externa             |
-| 13  | GET /instagram/profiles/:profileId/competitors                  | Pronto: dono, listagem no envelope existente                           | Validacao externa com o adaptador                                      |
-| 14  | POST /instagram/profiles/:profileId/competitors                 | Pronto: username, regras e Initial Sync atomico                        | Worker habilitado no deploy e validacao externa                        |
-| 15  | DELETE /instagram/profiles/:profileId/competitors/:competitorId | Pronto: ID da relacao, dono, 204, historico preservado                 | Validacao externa; Watched diario implementado na etapa R              |
-| 16  | GET /instagram/discover                                         | Pronto: nicho/cidade/query, cache 24h, 200 aguardando worker e custos  | Validacao externa, timeout do backend/proxy e aquecimento pelo backend |
+| #   | Endpoint do guia                                                | Situação no código                                                    | Trabalho pendente                                                    |
+| --- | --------------------------------------------------------------- | --------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| 1   | GET /instagram/profiles/search                                  | Pronto: previa, profileId nullable, ownership e ProviderRun           | Validar contrato/SLA/custo reais e migrar consumidor legado          |
+| 2   | POST /internal/instagram/profiles                               | Pronto no codigo: reserva + lookup reaproveitado + Initial Sync       | Validacao externa de contrato, SLA e cobranca                        |
+| 3   | POST /internal/instagram/profiles/:profileId/owner              | Pronto nesta etapa                                                    | Validacao externa com o backend principal                            |
+| 4   | DELETE /internal/instagram/profiles/:profileId/reservation      | Pronto nesta etapa                                                    | Validacao externa com o backend principal                            |
+| 5   | GET /instagram/profiles/:profileId                              | Pronto nesta etapa                                                    | Validacao externa; isVerified pode ser null por decisao do usuario   |
+| 6   | GET /instagram/profiles/:profileId/posts                        | Pronto nesta etapa                                                    | Validacao externa com o adaptador                                    |
+| 7   | GET /instagram/profiles/:profileId/snapshots                    | Pronto nesta etapa                                                    | Validacao externa com o adaptador                                    |
+| 8   | GET /instagram/posts/:postId                                    | Pronto: 200/202, frescor 24h e on_open duravel                        | Validacao externa e worker no deploy                                 |
+| 9   | GET /instagram/posts/:postId/metrics                            | Pronto nesta etapa                                                    | Validacao externa com o adaptador                                    |
+| 10  | POST /instagram/posts/:postId/refresh                           | Pronto: fila, deduplicacao, teto diario UTC e snapshot                | Validacao externa e worker no deploy                                 |
+| 11  | PATCH /internal/instagram/profiles/:profileId/monitoring        | Pronto nesta etapa                                                    | Elegibilidade aplicada a Daily e Watched; validar integracao externa |
+| 12  | GET /internal/costs                                             | Pronto: mes UTC, agrupamentos e totais anulaveis                      | Ledger/conciliacao implementados; validar cobranca externa           |
+| 13  | GET /instagram/profiles/:profileId/competitors                  | Pronto: dono, listagem no envelope existente                          | Validacao externa com o adaptador                                    |
+| 14  | POST /instagram/profiles/:profileId/competitors                 | Pronto: username, regras e Initial Sync atomico                       | Worker habilitado no deploy e validacao externa                      |
+| 15  | DELETE /instagram/profiles/:profileId/competitors/:competitorId | Pronto: ID da relacao, dono, 204, historico preservado                | Validacao externa; Watched diario implementado na etapa R            |
+| 16  | GET /instagram/discover                                         | Pronto: cache 24h/200; miss 202 imediato; erros por 1min              | Validar polling 202/200 e ajuste de cota no backend                  |
+| 17  | DELETE /internal/instagram/profiles/:profileId/owner?userId=... | Pronto: service, trava de dono, historico e cancelamento de pendentes | Validar no ambiente Railway                                          |
 
 O usuario aprovou na etapa M substituir o comprovante de confirmacao por body
 username, manter competitorId como ID da relacao e preservar o envelope da
@@ -129,7 +131,7 @@ ProviderRun e depois criar uma linha nao impede execucoes concorrentes.
 | Post Refresh         | Executor duravel ligado aos endpoints 8/10; source, custos, retries e lease              | Benchmark real dos Actors, deploy e integracao externa                         |
 | Discover Search      | Worker Seemu, 50 posts/30 dias, cache, fromCache, custos, retries e fencing              | Validacao real, deploy e aquecimento pelo backend                              |
 
-Estado atual: API e worker sao processos separados na VPS, com tarefas
+Estado atual: API e worker sao processos separados (worker Railway informado pelo usuario em 25/11), com tarefas
 persistidas no PostgreSQL e fencing de lease/token. O cron apenas enfileira,
 com trava local auxiliar e transacoes serializaveis para concorrencia entre
 processos. Os jobs tem tres tentativas totais (esperas de 1/5min) e retomada de
@@ -1124,3 +1126,77 @@ MVP/legadas, conciliacao e artefatos operacionais prontos. Dependencias externas
 validar contrato com o backend principal (inclusive prefixo/IDs String), executar
 benchmark autorizado de Actors/custos/SLA e instalar/configurar a VPS. Nao declarar
 producao pronta nem integracao externa concluida sem essas verificacoes.
+
+## Etapa T — remoção de dono, Discover assíncrono e custos no aceite
+
+Pedido de 25/11/2026: adicionar DELETE /internal/instagram/profiles/:profileId/owner
+com userId obrigatório na query, sem body e token service. Usuário confirmou
+cancelar Initial Sync pendente além de Daily/Post Refresh. Também aprovou manter
+falhas finais do Discover por um minuto antes de permitir nova tentativa.
+
+Remoção serializável: 404 inexistente, 409 OWNER_MISMATCH antes de qualquer
+escrita se outro dono, 204 sem corpo quando remove ou já não há dono. Limpa só
+ownerUserId, encerra outgoing relations ativas com relógio do banco e preserva
+incoming relations, posts, snapshots, métricas e ledger. Se já não há dono, não
+refaz efeitos colaterais: repetir após novo convite não apaga reserva nem cancela
+o Initial do novo convite. Outro dono já atribuído impede a remoção antiga.
+
+Jobs PENDING Initial/Post Refresh são encerrados em lote como FAILED com
+lastError PROFILE_OWNER_REMOVED e activeKey liberada. Jobs Daily PENDING perdem
+apenas o membro removido; lote vazio é encerrado, os demais continuam com seus
+locks/membership. Seleção usa FOR UPDATE SKIP LOCKED e updates verificam PENDING,
+coordenando com claims concorrentes. RUNNING não é alterado, nenhum abort é
+mandado à Apify. Histórico permanece, sem novo enum/tabela/migration. Sem dono,
+o perfil sai do Daily; leituras do antigo dono recebem 403 salvo se ele possuir
+outro escopo COMPETITOR válido. Incoming watches de outros clientes continuam.
+
+POST .../owner preenche userId apenas dos ProviderRun initial daquele perfil
+que continuam null, na mesma transação do aceite/limpeza da reserva. Repetir pelo
+mesmo dono também faz esse preenchimento. Não sobrescreve usuários anteriores,
+custos, datas, outras origens ou outros perfis. Ex-dono conserva custos históricos
+após desvinculação; nova atribuição não transfere cobranças já atribuídas.
+
+GET profiles/search acrescenta profileId interno quando encontrado pelo instagramId;
+null quando não há cadastro ou Instagram responde not_found. Ownership/privacidade
+e ausência de persistência de dados da busca permanecem. ID não concede acesso.
+
+Discover: cache válido responde 200/fromCache true; miss cria/reutiliza job e
+responde 202 {status:searching} sem timer/polling interno. Consumidor consulta a
+mesma URL. Removida INSTAGRAM_DISCOVER_WAIT_MS e espera de 22min. Falha final é
+repassada como 429/503 por um minuto, sem novo job; após esse intervalo, pode
+iniciar outro. Publicação de cache/conclusão do job compartilha advisory lock
+com o enqueue, evitando corrida que criaria busca duplicada. Jobs/Actors e custos
+seguem duráveis. 202 não informa se criou ou reutilizou job; backend deve adaptar
+a cota que antes dependia de fromCache false, sem cobrar cada polling.
+
+Custo search: código usa usageTotalUsd real, Decimal com seis casas; testes
+cobrem zero e valores positivos. Conciliador agora inclui custos zero para reler
+metadados que eventualmente mudem. Foi feita consulta somente em leitura ao banco
+configurado: dois search de Profile Scraper estavam em zero. Os GETs de seus runs
+na Apify retornaram 403 com a credencial local. Portanto não foi possível confirmar
+se o valor externo é zero ou foi atualizado. Nenhum custo foi alterado por esse
+diagnóstico; conferir/reconciliar com a credencial que tem acesso aos runs, por
+exemplo no ambiente Railway. Nunca estimar preço nem iniciar Actor para conferir
+cobrança. Referência oficial: [Run na documentação da Apify](https://docs.apify.com/api/client/js/reference/next/interface/Run).
+
+Ambiente relatado pelo usuário: worker social-data-worker no Railway, comando
+npm run start:worker, INSTAGRAM_WORKER_ENABLED=true; backend principal chama
+/api/cron/instagram-refresh a cada dez minutos. Convite, Initial, atribuição,
+leituras e métricas passaram no teste ponta a ponta do time. Estes são relatos
+de integração, não deploy executado pelo agente. Scripts loopback/systemd ficam
+como referência de VPS; não instalar segundo agendador no Railway.
+
+Validação: 903 testes locais passaram; doze integrações opt-in ficam fora do
+npm test comum. Integração PostgreSQL da remoção passou em cerca de 77s;
+Discover passou na repetição em cerca de 157s, com 202/200, concorrência,
+erros sem novo job, retry e fencing. A execução anterior do Discover excedeu
+o tempo durante a interrupção; deixou um schema de fixtures, conferido e
+removido explicitamente, com ausência confirmada. Os schemas das execuções
+sucedidas também foram removidos. Typecheck, lint, formatação e build foram
+verificados ao concluir a etapa. Custos/Actors dos testes são simulados; não
+houve Actor pago, abort de Actor ou mutation em public. Só o diagnóstico de
+custos fez leitura de linhas de negócio, sem alterá-las. Mudanças novas não
+foram publicadas nem aplicadas a dados de negócio. Schemas privados de testes
+são removidos; .env e arquivos pessoais permanecem intactos. Inventário atual:
+17 endpoints e cinco executores; somente os novos contratos exigem nova
+validação externa e o acesso aos metadados de custo continua limitado pelo 403.

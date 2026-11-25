@@ -1,4 +1,10 @@
-# Operação na VPS
+# Operação na VPS (referência)
+
+Ambiente atual informado em 25/11/2026: worker no Railway, serviço
+`social-data-worker`, com `npm run start:worker` e
+`INSTAGRAM_WORKER_ENABLED=true`. O backend principal chama o cron a cada dez
+minutos. API e worker são serviços separados; não usar o cliente loopback deste
+diretório para chamar outro serviço no Railway nem instalar um segundo timer.
 
 Arquivos de exemplo para uma VPS Linux com systemd e Node.js 22+. Não foram
 instalados em nenhum servidor. Os caminhos e o usuário devem corresponder à VPS:
@@ -48,8 +54,9 @@ Não há promessa de terminar antes das 6h sem medir o volume/latência reais.
 
 A API escuta na porta PORT (padrão 3000). Mantê-la inacessível publicamente,
 expondo apenas o proxy HTTPS. `nginx.conf.example` é um bloco local de referência:
-ajustar domínio, porta e TLS no proxy existente. Backend/proxy precisam aceitar
-mais de 22min para um Discover sem cache; as outras leituras são do banco.
+ajustar domínio, porta e TLS no proxy existente. Discover sem cache responde 202 imediatamente; o backend consulta de novo até
+receber 200. O timeout de 22min e a variável INSTAGRAM_DISCOVER_WAIT_MS foram
+removidos do fluxo HTTP. As outras leituras usam o banco.
 O único consumidor é o backend principal, não o navegador.
 
 ## Verificações e parada

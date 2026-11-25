@@ -656,6 +656,7 @@ Resposta 200 direta:
 
 ```json
 {
+  "profileId": null,
   "instagramId": "123456789",
   "username": "bahiataste",
   "name": "Bahia Taste",
@@ -669,8 +670,10 @@ Resposta 200 direta:
 }
 ```
 
-Campos desconhecidos permanecem null; zero continua zero. Nao retorna posts,
-ID interno, ownerUserId ou informacoes do convite.
+Campos desconhecidos permanecem null; zero continua zero. profileId é o ID
+interno quando o perfil já existe no banco, inclusive se estiver reservado ou
+pertencer a outro usuário; caso contrário, null. Não retorna posts, ownerUserId
+ou informações do convite. Conhecer o ID não concede acesso de leitura.
 
 | ownershipStatus | Significado                                               |
 | --------------- | --------------------------------------------------------- |
@@ -688,7 +691,7 @@ e uma previa: a criacao do convite revalida os conflitos no POST interno.
 Para inexistente, o GET novo retorna 200 com somente:
 
 ```json
-{ "username": "bahiataste", "ownershipStatus": "not_found" }
+{ "profileId": null, "username": "bahiataste", "ownershipStatus": "not_found" }
 ```
 
 Perfil privado continua com 404 PROFILE_PRIVATE. Falha/timeout da Apify retorna
@@ -841,11 +844,11 @@ Com menos de 24 horas, retorna o cache sem Actor novo. Com 24 horas exatas,
 cache ausente ou data futura, cria/reutiliza um job Discover Search. Uma trava
 no banco por chave coordena chamadas simultâneas, inclusive de usuários distintos.
 
-A resposta é 200 com objeto direto:
+Com cache válido, a resposta é 200 com objeto direto:
 
 ```json
 {
-  "fromCache": false,
+  "fromCache": true,
   "fetchedAt": "2026-11-23T12:00:00.000Z",
   "niche": "brazilian food",
   "city": "newark, nj",
@@ -861,33 +864,34 @@ ficam null; hashtags são normalizadas; -1 em likes vira null/likesHidden true;
 views só são expostas para Reels. Os dados são gravados somente em DiscoverCache,
 sem criar perfis, posts ou snapshots de métricas no domínio monitorado.
 
-A chamada que **cria** a busca retorna fromCache false; quem reutiliza o cache
-ou espera o job de outra chamada retorna true. Assim uma busca compartilhada não
-consome várias unidades da cota do backend principal. A API não implementa a cota
-comercial de vinte buscas/mês: o backend a conta a partir de fromCache. Custo de
-Actor fica no ProviderRun do primeiro solicitante; aquecimento por serviço usa
-userId null, nunca hustleq-main como usuário fictício. Falhas também são registradas.
+Sem cache válido, a API cria/reutiliza um job e responde imediatamente:
 
-Por decisão confirmada, cache miss aguarda o resultado, sem resposta 202.
-**O worker precisa estar executando em processo separado**, com
-INSTAGRAM_WORKER_ENABLED=true. Configure:
+```http
+HTTP/1.1 202 Accepted
+Content-Type: application/json
 
-```dotenv
-INSTAGRAM_DISCOVER_WAIT_MS=1320000
+{"status":"searching"}
 ```
 
-O padrão é 22 minutos, ajustável entre um segundo e uma hora. Esse orçamento
-acomoda buscas/retries demorados, mas não garante conclusão em fila congestionada.
-Alinhe o timeout do backend/proxy na VPS; não há garantia de espera equivalente
-em plataformas serverless. O JWT é validado na entrada da requisição. Desconexão
-ou timeout interrompe a espera HTTP, sem apagar nem duplicar a tarefa durável.
-Se a tarefa concluir depois, a próxima chamada poderá aproveitar o cache.
+O backend consulta a mesma URL novamente. Enquanto houver job pendente ou em
+execução, recebe 202 sem criar outro job. Depois da publicação, recebe 200 com
+fromCache true. Não há mais espera HTTP nem INSTAGRAM_DISCOVER_WAIT_MS; a variável
+antiga pode ser removida da configuração. O worker continua necessário, em
+processo separado, com INSTAGRAM_WORKER_ENABLED=true.
+
+**Integração de cotas:** o 202 não distingue criação de job de polling. Não
+contar cada polling como nova busca. A lógica anterior baseada em fromCache false
+precisa ser ajustada no backend principal; a API não implementa a cota comercial.
+Custo fica no ProviderRun do primeiro solicitante; aquecimento service usa userId
+null. Este contrato não acrescenta identificador público de job.
 
 O job tem três tentativas totais, esperas de um e cinco minutos e recuperação de
 lease sem repetir um Actor conhecido. Publicação do cache e conclusão do job são
 atômicas e protegidas pelo token de posse. Cache vencido permanece armazenado se
-a atualização falhar, mas **não é devolvido**. Falha final retorna 429 RATE_LIMITED
-ou 503 PROVIDER_UNAVAILABLE, com mensagem do provider sanitizada. Dataset só de
+a atualização falhar, mas **não é devolvido**. Nas consultas após falha final, retorna 429 RATE_LIMITED ou 503
+PROVIDER_UNAVAILABLE por um minuto, com mensagem sanitizada. Depois desse minuto,
+sem cache válido e sem job ativo, uma consulta pode iniciar nova tentativa. Isso
+evita que polling reinicie buscas pagas imediatamente após cada falha. Dataset só de
 avisos não vira sucesso vazio. Dataset genuinamente vazio pode gerar posts [].
 
 Nenhum agendamento novo foi criado para aquecimento: o backend principal chama
@@ -1006,7 +1010,7 @@ RUN_DATABASE_TESTS=true npx vitest run tests/instagram-watched.integration.test.
 
 ## Entrega e operação da MVP
 
-Os 16 endpoints e os cinco executores estão implementados. O inventário completo
+Os 16 endpoints originais, a remoção de dono adicional e os cinco executores estão implementados. O inventário completo
 fica em [docs/mvp-implementation-audit.md](docs/mvp-implementation-audit.md).
 As buscas legadas de perfil, posts, trends e prévia de concorrente também
 registram ProviderRun com o usuário autenticado, custo real conhecido/null e
@@ -1032,3 +1036,54 @@ A sintaxe do calendário segue o [manual oficial do systemd](https://www.freedes
 A entrega local não substitui a validação com o backend principal, domínio/TLS,
 credenciais da VPS e Actors reais: cobertura de resultados, custo e conclusão
 antes das 6h precisam ser medidos no ambiente de destino.
+
+## Remover dono — endpoint adicional (25/11/2026)
+
+```http
+DELETE /api/v1/internal/instagram/profiles/ID_INTERNO/owner?userId=ID_DO_DONO_ATUAL
+Authorization: Bearer <JWT_DE_SERVICO>
+```
+
+Sem body. Exige sub=hustleq-main e scope=service. Define ownerUserId=null,
+encerra somente relações ativas que saem desse perfil e cancela jobs pendentes
+de Initial Sync, Daily e Post Refresh. Nos lotes Daily, retira apenas esse membro;
+os demais continuam. Jobs em execução não são abortados, e não há chamada ao
+abort da Apify. Perfil, posts, snapshots, métricas e ledger permanecem salvos.
+Relações em que outro perfil acompanha esse alvo não mudam.
+
+204 sem corpo na remoção e em repetições quando já não houver dono; 409
+OWNER_MISMATCH se outro usuário for dono; 404 PROFILE_NOT_FOUND; 400
+INVALID_REQUEST para query inválida/body; 401/403 para autenticação. A comparação
+do dono e as alterações são transacionais. Uma repetição quando já está sem dono
+não cancela jobs de um novo convite nem limpa sua reserva.
+
+Sem dono, o perfil sai do Daily. As leituras do antigo dono retornam 403 se ele
+não tiver outra relação válida de COMPETITOR. Outros clientes que ainda
+acompanham o alvo mantêm acesso e sua coleta Watched. O perfil pode ser reservado
+e receber outro dono pelas rotas internas existentes, mantendo o mesmo ID.
+Cancelamentos internos usam FAILED com lastError PROFILE_OWNER_REMOVED, sem
+adicionar enum/tabela/migration.
+
+Ao atribuir dono (POST .../owner), também atribui a esse usuário os ProviderRun
+initial do perfil que ainda têm userId null, na mesma transação. Custos, datas e
+usuários já atribuídos não são sobrescritos. Repetir o aceite pelo mesmo dono
+aplica esse preenchimento aos registros anteriores. A remoção do dono não
+apaga/reassocia cobranças históricas.
+
+A busca de perfil grava usageTotalUsd real como Decimal, inclusive zero; ausência
+fica null, nunca preço estimado. A conciliação também passa a revisar custos
+zero, além de running/null. Executar no ambiente com acesso aos runs:
+
+```bash
+npm run costs:reconcile -- --limit 100
+```
+
+## Ambiente informado pelo backend principal
+
+Em 25/11/2026, o usuário informou que o worker está no Railway, serviço
+social-data-worker, usando npm run start:worker e INSTAGRAM_WORKER_ENABLED=true.
+O backend chama /api/cron/instagram-refresh a cada dez minutos. API e worker são
+serviços separados; o cliente loopback de deploy/ é referência para VPS, não o
+agendador do Railway. Não instalar outro timer para duplicar o agendamento.
+O fluxo de convite ponta a ponta foi validado pelo time, segundo o relato do
+usuário. Não houve deploy nem acesso administrativo ao Railway nesta alteração.

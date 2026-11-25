@@ -13,8 +13,9 @@ export const profileOwnershipStatusSchema = z.enum([
 ]);
 export type ProfileOwnershipStatus = z.infer<typeof profileOwnershipStatusSchema>;
 export const instagramProfileSearchResponseSchema = z.union([
-  z.object({ username: z.string(), ownershipStatus: z.literal('not_found') }),
+  z.object({ profileId: z.null(), username: z.string(), ownershipStatus: z.literal('not_found') }),
   z.object({
+    profileId: z.string().nullable(),
     instagramId: z.string(),
     username: z.string(),
     name: z.string().nullable(),

@@ -63,3 +63,5 @@ export const discoverResponseSchema = z.strictObject({
   query: z.string().nullable(),
   posts: discoverPostsSchema,
 });
+
+export const discoverSearchingResponseSchema = z.object({ status: z.literal('searching') });

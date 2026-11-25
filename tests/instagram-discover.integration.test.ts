@@ -160,11 +160,17 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')(
           .then((result) => result);
         const job = await waitForJob();
         expect(await inSchema((tx) => tx.instagramSyncJob.count())).toBe(1);
-        expect(await runDiscoverWorkerOnce(client, gateway)).toMatchObject({ status: 'succeeded' });
         const responses = await Promise.all([first, other]);
-        expect(responses.map((r) => r.statusCode)).toEqual([200, 200]);
-        expect(responses.map((r) => r.json().fromCache).sort()).toEqual([false, true]);
-        expect(responses[0]!.json().posts[0]).toMatchObject({
+        expect(responses.map((r) => r.statusCode)).toEqual([202, 202]);
+        expect(responses.map((r) => r.json())).toEqual([
+          { status: 'searching' },
+          { status: 'searching' },
+        ]);
+        expect(await runDiscoverWorkerOnce(client, gateway)).toMatchObject({ status: 'succeeded' });
+        const completed = await app.inject({ url: path, headers: headers('first') });
+        expect(completed.statusCode).toBe(200);
+        expect(completed.json().fromCache).toBe(true);
+        expect(completed.json().posts[0]).toMatchObject({
           instagramPostId: '90071992547409939999',
           likesCount: 0,
           hashtags: ['rj'],
@@ -191,7 +197,7 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')(
           .then((result) => result);
         await waitForJob();
         expect(await runDiscoverWorkerOnce(client, gateway)).toMatchObject({ status: 'succeeded' });
-        expect((await warm).json().fromCache).toBe(false);
+        expect((await warm).statusCode).toBe(202);
         expect(await inSchema((tx) => tx.providerRun.count({ where: { userId: null } }))).toBe(1);
         // Expired cache is neither returned nor overwritten if the next three attempts fail.
         const key = discoverKey({ niche: 'food', city: 'newark', query: null });
@@ -221,10 +227,14 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')(
               }),
             );
         }
-        const failure = await failing;
+        expect((await failing).statusCode).toBe(202);
+        const failure = await app.inject({ url: path, headers: headers('retry-user') });
         expect(failure.statusCode, failure.body).toBe(429);
         expect(failure.json().error.message).toContain('please wait');
         expect(failure.json()).not.toHaveProperty('posts');
+        expect(
+          await inSchema((tx) => tx.instagramSyncJob.count({ where: { type: 'DISCOVER_SEARCH' } })),
+        ).toBe(3);
         expect(
           await inSchema((tx) => tx.discoverCache.findUniqueOrThrow({ where: { key } })),
         ).toEqual(expired);

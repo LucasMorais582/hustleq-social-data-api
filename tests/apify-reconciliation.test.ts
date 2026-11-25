@@ -85,6 +85,12 @@ describe('read-only Apify reconciliation', () => {
     expect(await reconcileProviderRuns(1, client, { get })).toMatchObject({ unknownCost: 0 });
     expect(updateMany.mock.calls[0]![0].data).not.toHaveProperty('costUsd');
   });
+  it('rechecks stored zero costs and replaces them only with an observed value', async () => {
+    findMany.mockResolvedValue([{ ...row, status: 'succeeded', costUsd: new Prisma.Decimal(0) }]);
+    await reconcileProviderRuns(1, client, { get });
+    expect(findMany.mock.calls[0]![0].where.OR).toContainEqual({ costUsd: 0 });
+    expect(updateMany.mock.calls[0]![0].data.costUsd.toString()).toBe('0.02');
+  });
   it('reports unknown costs explicitly', async () => {
     get.mockResolvedValue({ id: 'external', status: 'SUCCEEDED' });
     expect(await reconcileProviderRuns(1, client, { get })).toMatchObject({ unknownCost: 1 });

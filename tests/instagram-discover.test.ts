@@ -57,17 +57,17 @@ describe('Discover endpoint 16', () => {
     expect(m.progress).not.toHaveBeenCalled();
     expect(m.apify).not.toHaveBeenCalled();
   });
-  it('returns fromCache false only to the request that creates the search', async () => {
-    m.begin.mockResolvedValue({ cache: null, jobId: 'job', created: true });
-    const response = await read();
-    expect(response.statusCode).toBe(200);
-    expect(response.json().fromCache).toBe(false);
-    expect(m.progress).toHaveBeenCalledWith(cache.key, 'job');
-  });
-  it('returns fromCache true to callers sharing a running job', async () => {
-    m.begin.mockResolvedValue({ cache: null, jobId: 'job', created: false });
-    expect((await read()).json().fromCache).toBe(true);
-  });
+  it.each([true, false])(
+    'responds immediately with 202 for created=%s, without polling or calling Apify',
+    async (created) => {
+      m.begin.mockResolvedValue({ cache: null, jobId: 'job', created });
+      const result = await read();
+      expect(result.statusCode).toBe(202);
+      expect(result.json()).toEqual({ status: 'searching' });
+      expect(m.progress).not.toHaveBeenCalled();
+      expect(m.apify).not.toHaveBeenCalled();
+    },
+  );
   it('accepts service warm-up without assigning costs to hustleq-main', async () => {
     expect((await read(undefined, { sub: 'hustleq-main', scope: 'service' })).statusCode).toBe(200);
     expect(m.begin).toHaveBeenCalledWith(query, null);
@@ -127,19 +127,26 @@ describe('Discover endpoint 16', () => {
     },
   );
   it.each([429, 503])('returns clear provider failure %i without stale data', async (status) => {
-    m.begin.mockResolvedValue({ cache: null, jobId: 'job', created: true });
-    m.progress.mockResolvedValue({
-      job: { status: 'FAILED', payload: { failure: { status, message: 'Apify unavailable' } } },
-      cache,
+    m.begin.mockResolvedValue({
+      cache: null,
+      jobId: 'job',
+      created: false,
+      failed: true,
+      payload: { failure: { status, message: 'Apify unavailable' } },
     });
     const response = await read();
     expect(response.statusCode).toBe(status);
     expect(response.json().error.message).toBe('Apify unavailable');
     expect(response.json()).not.toHaveProperty('posts');
   });
-  it('does not treat a completed job without valid cache as success', async () => {
-    m.begin.mockResolvedValue({ cache: null, jobId: 'job', created: true });
-    m.progress.mockResolvedValue({ job: { status: 'SUCCEEDED' }, cache: null });
+  it('does not hide a failed job with malformed failure data', async () => {
+    m.begin.mockResolvedValue({
+      cache: null,
+      jobId: 'job',
+      created: false,
+      failed: true,
+      payload: {},
+    });
     expect((await read()).statusCode).toBe(503);
   });
   it('hides database details', async () => {
@@ -152,29 +159,21 @@ describe('Discover endpoint 16', () => {
     m.begin.mockResolvedValue({ cache: { ...cache, results: [{ forged: true }] } });
     expect((await read()).statusCode).toBe(500);
   });
-  it('waits for retry completion without returning 202', async () => {
+  it('returns searching from the service without scheduling a timer', async () => {
     m.begin.mockResolvedValue({ cache: null, jobId: 'job', created: true });
-    m.progress.mockResolvedValueOnce({ job: { status: 'PENDING' }, cache: null });
-    const result = await getInstagramDiscover(query, 'user', { pollMs: 1, waitMs: 1000 });
-    expect(result.fromCache).toBe(false);
-    expect(m.progress).toHaveBeenCalledTimes(2);
-  });
-  it('returns a timeout error without starting another job', async () => {
-    m.begin.mockResolvedValue({ cache: null, jobId: 'job', created: true });
-    m.progress.mockResolvedValue({ job: { status: 'RUNNING' }, cache: null });
-    await expect(getInstagramDiscover(query, 'user', { waitMs: 0 })).rejects.toMatchObject({
-      statusCode: 503,
-    });
-    expect(m.begin).toHaveBeenCalledTimes(1);
-  });
-  it('stops waiting on disconnect but keeps the durable job', async () => {
-    m.begin.mockResolvedValue({ cache: null, jobId: 'job', created: true });
-    const controller = new AbortController();
-    controller.abort();
-    await expect(
-      getInstagramDiscover(query, 'user', { signal: controller.signal }),
-    ).rejects.toMatchObject({ statusCode: 503 });
+    expect(await getInstagramDiscover(query, 'user')).toEqual({ status: 'searching' });
     expect(m.progress).not.toHaveBeenCalled();
+  });
+  it('also enqueues service warm-up without waiting', async () => {
+    m.begin.mockResolvedValue({ cache: null, jobId: 'job', created: true });
+    expect((await read(undefined, { sub: 'hustleq-main', scope: 'service' })).statusCode).toBe(202);
+    expect(m.begin).toHaveBeenCalledWith(query, null);
+  });
+  it('documents the accepted response in Swagger', async () => {
+    await app.ready();
+    expect(
+      app.swagger().paths?.['/api/v1/instagram/discover']?.get?.responses?.['202'],
+    ).toBeDefined();
   });
   it('expires precisely at 24h and rejects future timestamps', () => {
     const fetchedAt = cache.fetchedAt;

@@ -485,3 +485,21 @@ O teste usa schema isolado, transporte simulado, enqueues concorrentes, alvos
 compartilhados, fontes encerradas/pausadas/sem dono, custos unicos, doze posts,
 barreira Daily, tentativa Daily falha e retomada de lease. Remove o schema ao
 final; nao usa linhas de public como fixtures nem chama Actors reais.
+
+## Remoção de dono e custos iniciais — sem migration
+
+A transação de remoção preserva todas as tabelas/histórico, encerra apenas
+relações outgoing ativas e cancela os jobs pendentes de Initial/Post Refresh.
+No Daily em lote, retira somente o membro afetado; um lote sem membros restantes
+é encerrado. Usa o estado FAILED existente, com lastError PROFILE_OWNER_REMOVED,
+sem criar enum CANCELLED. RUNNING fica intacto. Atribuição de dono preenche apenas
+ProviderRun initial do perfil com userId null, sem reatribuir custos já associados.
+
+```bash
+RUN_DATABASE_TESTS=true npx vitest run tests/instagram-profile-owner-removal.integration.test.ts
+```
+
+Exercita chamadas concorrentes/idempotentes, mismatch sem mutação, jobs pendentes
+versus RUNNING, membro secundário de lote, histórico/incoming watches, revogação
+de leitura e novo convite/dono. Usa schema próprio com remoção/ausência verificadas
+e Apify simulado; não altera public nem executa Actors reais.

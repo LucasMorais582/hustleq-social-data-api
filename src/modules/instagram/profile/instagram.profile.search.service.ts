@@ -28,7 +28,7 @@ export async function searchInstagramProfile(
       client,
       gateway,
     );
-    const ownershipStatus = await readInstagramProfileOwnership(profile.id, userId, client);
+    const ownership = await readInstagramProfileOwnership(profile.id, userId, client);
     return instagramProfileSearchResponseSchema.parse({
       instagramId: profile.id,
       username: profile.username,
@@ -39,11 +39,11 @@ export async function searchInstagramProfile(
       followers: profile.followersCount ?? null,
       following: profile.followsCount ?? null,
       postsCount: profile.postsCount ?? null,
-      ownershipStatus,
+      ...ownership,
     });
   } catch (error) {
     if (error instanceof ProfileLookupError && error.code === 'PROFILE_NOT_FOUND') {
-      return { username: input.username, ownershipStatus: 'not_found' as const };
+      return { profileId: null, username: input.username, ownershipStatus: 'not_found' as const };
     }
     if (error instanceof ProviderStartUncertain)
       throw providerFailure('Não foi possível confirmar o início da pesquisa na Apify');

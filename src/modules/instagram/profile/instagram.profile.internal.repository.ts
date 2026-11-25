@@ -1,3 +1,4 @@
+import { removeProfileOwnerInTransaction } from './instagram.profile.owner-removal.repository.js';
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { getPrismaClient } from '../../../provider/database/prisma.client.js';
 
@@ -23,6 +24,7 @@ export interface ProfileInternalStore {
   find(profileId: string): Promise<{ id: string; ownerUserId: string | null } | null>;
   assignOwner(profileId: string, userId: string): Promise<void>;
   clearReservation(profileId: string): Promise<void>;
+  removeOwner(profileId: string): Promise<void>;
   updateMonitoring(profileId: string, monitoringUntil: Date | null): Promise<MonitoringProfile>;
 }
 export async function withProfileInternalTransaction<T>(
@@ -45,7 +47,12 @@ export async function withProfileInternalTransaction<T>(
                 data: { ownerUserId, reservedForInviteId: null, reservedUntil: null },
                 select: { id: true },
               });
+              await tx.providerRun.updateMany({
+                where: { instagramProfileId: id, trigger: 'initial', userId: null },
+                data: { userId: ownerUserId },
+              });
             },
+            removeOwner: (id) => removeProfileOwnerInTransaction(id, tx),
             clearReservation: async (id) => {
               await tx.instagramProfile.update({
                 where: { id },

@@ -21,7 +21,10 @@ let profile: {
   reservedForInviteId: string | null;
   reservedUntil: Date | null;
 } | null;
-const tx = { instagramProfile: { findUnique: mock.find, update: mock.update } };
+const tx = {
+  instagramProfile: { findUnique: mock.find, update: mock.update },
+  providerRun: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+};
 beforeEach(() => {
   vi.resetAllMocks();
   app = buildApp();
@@ -174,6 +177,14 @@ describe('MVP internal profile owner and reservation endpoints 3 and 4', () => {
       expect(mock.transaction).not.toHaveBeenCalled();
     },
   );
+  it('attributes only unattributed initial runs when assigning the owner, including repeated acceptance', async () => {
+    expect((await assign()).statusCode).toBe(200);
+    expect((await assign()).statusCode).toBe(200);
+    expect(tx.providerRun.updateMany).toHaveBeenCalledWith({
+      where: { instagramProfileId: 'profile-internal', trigger: 'initial', userId: null },
+      data: { userId: 'hustleq-user' },
+    });
+  });
   it('keeps alphanumeric user IDs as strings', async () => {
     expect((await assign('90071992547409931234-A')).json().ownerUserId).toBe(
       '90071992547409931234-A',

@@ -5,7 +5,11 @@ import {
   authenticatedCallerUserId,
 } from '../../../auth/authenticate.js';
 import { readErrorSchema } from '../shared/instagram.read.schemas.js';
-import { discoverQuerySchema, discoverResponseSchema } from './instagram.discover.schemas.js';
+import {
+  discoverQuerySchema,
+  discoverResponseSchema,
+  discoverSearchingResponseSchema,
+} from './instagram.discover.schemas.js';
 import { getInstagramDiscover } from './instagram.discover.service.js';
 
 export async function instagramDiscoverRoutes(app: FastifyInstance) {
@@ -20,11 +24,12 @@ export async function instagramDiscoverRoutes(app: FastifyInstance) {
       schema: {
         tags: ['Instagram Discover'],
         summary:
-          'Posts dos últimos 30 dias; cache compartilhado por 24h; aguarda a busca em cache miss',
+          'Posts dos últimos 30 dias; cache 24h; sem cache, enfileira e retorna 202 imediatamente',
         security: [{ bearerAuth: [] }],
         querystring: discoverQuerySchema,
         response: {
           200: discoverResponseSchema,
+          202: discoverSearchingResponseSchema,
           400: readErrorSchema,
           401: readErrorSchema,
           403: readErrorSchema,
@@ -35,18 +40,9 @@ export async function instagramDiscoverRoutes(app: FastifyInstance) {
       },
     },
     async (request, reply) => {
-      const waiting = new AbortController();
-      const close = () => {
-        if (!reply.raw.writableEnded) waiting.abort();
-      };
-      reply.raw.once('close', close);
-      try {
-        return await getInstagramDiscover(request.query, authenticatedCallerUserId(request), {
-          signal: waiting.signal,
-        });
-      } finally {
-        reply.raw.removeListener('close', close);
-      }
+      const result = await getInstagramDiscover(request.query, authenticatedCallerUserId(request));
+      if ('status' in result) return reply.code(202).send(result);
+      return reply.code(200).send(result);
     },
   );
 }

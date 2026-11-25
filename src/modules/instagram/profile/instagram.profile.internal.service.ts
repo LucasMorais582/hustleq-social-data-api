@@ -52,3 +52,19 @@ export async function clearInstagramProfileReservation(profileId: string, client
     await store.clearReservation(profileId);
   }, client);
 }
+
+export async function removeInstagramProfileOwner(
+  profileId: string,
+  userId: string,
+  client?: PrismaClient,
+) {
+  return withProfileInternalTransaction(async (store) => {
+    const profile = await store.find(profileId);
+    if (!profile) throw new ApiError(404, 'PROFILE_NOT_FOUND', 'Perfil não encontrado');
+    // Repetir uma remoção não cancela jobs de um convite novo enquanto ainda está sem dono.
+    if (profile.ownerUserId === null) return;
+    if (profile.ownerUserId !== userId)
+      throw new ApiError(409, 'OWNER_MISMATCH', 'O perfil pertence a outro usuário');
+    await store.removeOwner(profileId);
+  }, client);
+}

@@ -75,6 +75,9 @@ export function commitDiscoverSearch(
     owner,
     async (tx, job) => {
       const target = metadataSchema.parse(job.payload).discover;
+      // Coordena publicação do cache/conclusão com o enqueue HTTP, evitando busca duplicada.
+      if (!job.activeKey) throw new Error('DISCOVER_ACTIVE_KEY_MISSING');
+      await tx.$queryRaw`SELECT 1 AS locked FROM pg_advisory_xact_lock(hashtextextended(${job.activeKey}, 0))`;
       const [clock] = await tx.$queryRaw<{ now: Date }[]>`SELECT clock_timestamp() AS now`;
       if (!clock) throw new Error('DATABASE_CLOCK_UNAVAILABLE');
       const posts = normalizeDiscoverPosts(items, target, clock.now);

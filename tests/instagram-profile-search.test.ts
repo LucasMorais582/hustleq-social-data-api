@@ -56,6 +56,7 @@ describe('GET profiles/search, MVP endpoint 1', () => {
     const result = await search();
     expect(result.statusCode).toBe(200);
     expect(result.json()).toEqual({
+      profileId: null,
       instagramId: profileFixture.id,
       username: 'example_profile',
       name: null,
@@ -75,7 +76,7 @@ describe('GET profiles/search, MVP endpoint 1', () => {
     // O mock de banco nao oferece mutacoes de perfil/post/snapshot/reserva/fila.
     expect(m.profileFind).toHaveBeenCalledWith({
       where: { instagramId: profileFixture.id },
-      select: { ownerUserId: true, reservedForInviteId: true, reservedUntil: true },
+      select: { id: true, ownerUserId: true, reservedForInviteId: true, reservedUntil: true },
     });
     expect(m.runCreate).toHaveBeenCalledWith({
       data: {
@@ -90,22 +91,41 @@ describe('GET profiles/search, MVP endpoint 1', () => {
       expect.objectContaining({ isolationLevel: 'RepeatableRead' }),
     );
     expect(result.json()).not.toHaveProperty('ownerUserId');
-    expect(result.json()).not.toHaveProperty('profileId');
+    expect(result.json().profileId).toBeNull();
   });
+  it.each([0, 0.0023, 0.123456])(
+    'persists the actual search usageTotalUsd=%s without estimating price',
+    async (usageTotalUsd) => {
+      m.get.mockResolvedValue({
+        id: 'apify-run',
+        status: 'SUCCEEDED',
+        defaultDatasetId: 'dataset',
+        usageTotalUsd,
+      });
+      expect((await search()).statusCode).toBe(200);
+      const costWrite = m.runUpdate.mock.calls.find(([arg]) => arg.data.costUsd !== undefined);
+      expect(costWrite).toBeDefined();
+      expect(costWrite![0].data.costUsd.toString()).toBe(String(usageTotalUsd));
+    },
+  );
   it.each([
     ['searcher-user', 'owned_by_me'],
     ['someone-else', 'owned_by_other'],
   ])('compares owner %s to JWT identity: %s', async (ownerUserId, expected) => {
     m.profileFind.mockResolvedValue({
+      id: 'stored-profile-id',
       ownerUserId,
       reservedForInviteId: 'invite',
       reservedUntil: new Date(Date.now() + 60000),
     });
-    expect((await search()).json().ownershipStatus).toBe(expected);
+    const response = (await search()).json();
+    expect(response.ownershipStatus).toBe(expected);
+    expect(response.profileId).toBe('stored-profile-id');
     expect(m.clock).not.toHaveBeenCalled();
   });
   it('reports an active reservation without exposing its invitation or owner', async () => {
     m.profileFind.mockResolvedValue({
+      id: 'stored-profile-id',
       ownerUserId: null,
       reservedForInviteId: 'secret-invite',
       reservedUntil: new Date(Date.now() + 60000),
@@ -121,6 +141,7 @@ describe('GET profiles/search, MVP endpoint 1', () => {
       const now = new Date();
       m.clock.mockResolvedValue([{ now }]);
       m.profileFind.mockResolvedValue({
+        id: 'stored-profile-id',
         ownerUserId: null,
         reservedForInviteId: 'invite',
         reservedUntil: new Date(now.getTime() + offset),
@@ -133,7 +154,7 @@ describe('GET profiles/search, MVP endpoint 1', () => {
     { ownerUserId: null, reservedForInviteId: 'invite', reservedUntil: null },
     { ownerUserId: null, reservedForInviteId: null, reservedUntil: new Date(Date.now() + 60000) },
   ])('does not invent an active reservation from incomplete metadata', async (profile) => {
-    m.profileFind.mockResolvedValue(profile);
+    m.profileFind.mockResolvedValue({ ...profile, id: 'stored-profile-id' });
     expect((await search()).json().ownershipStatus).toBe('available');
   });
   it.each([
@@ -145,7 +166,11 @@ describe('GET profiles/search, MVP endpoint 1', () => {
       m.items.mockResolvedValue(dataset);
       const result = await search();
       expect(result.statusCode).toBe(200);
-      expect(result.json()).toEqual({ username: 'example_profile', ownershipStatus: 'not_found' });
+      expect(result.json()).toEqual({
+        profileId: null,
+        username: 'example_profile',
+        ownershipStatus: 'not_found',
+      });
       expect(m.profileFind).not.toHaveBeenCalled();
     },
   );
