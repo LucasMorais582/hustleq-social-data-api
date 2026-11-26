@@ -156,7 +156,11 @@ export async function processProfileBatchSync(
         await store.commit(
           owner,
           entry.target.id,
-          { ...collection, metricSource: 'daily', profileSnapshotMinIntervalHours: 20 },
+          {
+            ...collection,
+            metricSource: 'daily',
+            profileSnapshotCadence: 'new-york-day',
+          },
           client,
         );
       }

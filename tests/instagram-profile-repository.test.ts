@@ -61,6 +61,77 @@ function fixture() {
 }
 
 describe('profile collection persistence', () => {
+  it.each(['initial', 'daily'] as const)(
+    'records %s as the follower snapshot source',
+    async (source) => {
+      const f = fixture();
+      const input = collection();
+      input.metricSource = source;
+      await saveProfileCollection(input, f.client);
+      expect(f.tx.instagramProfileSnapshot.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ source }),
+      });
+    },
+  );
+  it('refreshes a collected historical post even outside the top twelve on Initial Sync', async () => {
+    const f = fixture();
+    const input = collection();
+    input.metricSource = 'initial';
+    input.refreshAllCollectedPosts = true;
+    f.tx.instagramPost.findUnique.mockResolvedValue({
+      id: 'post-internal',
+      instagramProfileId: 'profile-internal',
+    });
+    await saveProfileCollection(input, f.client);
+    expect(f.tx.instagramPostMetricSnapshot.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ source: 'initial' }),
+    });
+    expect(f.tx.instagramPost.findMany).not.toHaveBeenCalled();
+    expect(f.tx.instagramPost.update).toHaveBeenCalledWith({
+      where: { id: 'post-internal' },
+      data: { lastCollectedAt: input.collectedAt },
+    });
+  });
+  it('does not supersede newer metrics with a delayed Initial history chunk', async () => {
+    const f = fixture();
+    const input = collection();
+    input.refreshAllCollectedPosts = true;
+    f.tx.instagramPost.findUnique.mockResolvedValue({
+      id: 'post-internal',
+      instagramProfileId: 'profile-internal',
+    });
+    f.tx.instagramPostMetricSnapshot.findFirst.mockResolvedValue({
+      collectedAt: new Date(input.collectedAt.getTime() + 1),
+    });
+    await saveProfileCollection(input, f.client);
+    expect(f.tx.instagramPostMetricSnapshot.create).not.toHaveBeenCalled();
+    expect(f.tx.instagramPost.update).not.toHaveBeenCalled();
+  });
+  it('allows a daily count the next New York day even when the previous snapshot is less than 20h old', async () => {
+    const f = fixture();
+    const input = collection();
+    input.collectedAt = new Date('2026-11-26T09:00:00Z');
+    input.profileSnapshotCadence = 'new-york-day';
+    input.profileSnapshotMinIntervalHours = 20; // The calendar policy deliberately takes precedence.
+    f.tx.instagramProfileSnapshot.findFirst.mockImplementation(async ({ where }) => {
+      const previous = new Date('2026-11-25T22:32:00-03:00');
+      return previous >= where.collectedAt.gte && previous < where.collectedAt.lt
+        ? { collectedAt: previous }
+        : null;
+    });
+    await saveProfileCollection(input, f.client);
+    expect(f.tx.instagramProfileSnapshot.create).toHaveBeenCalledTimes(1);
+  });
+  it('does not create another follower count on the same New York day', async () => {
+    const f = fixture();
+    const input = collection();
+    input.profileSnapshotCadence = 'new-york-day';
+    f.tx.instagramProfileSnapshot.findFirst.mockResolvedValue({ collectedAt: input.collectedAt });
+    await saveProfileCollection(input, f.client);
+    expect(f.tx.instagramProfileSnapshot.create).not.toHaveBeenCalled();
+    expect(f.tx.instagramPost.upsert).toHaveBeenCalledTimes(1);
+  });
+
   it.each([
     [20 * 3600000 - 1, 0],
     [20 * 3600000, 1],
@@ -90,6 +161,7 @@ describe('profile collection persistence', () => {
     expect(tx.instagramProfileSnapshot.create).toHaveBeenCalledWith({
       data: {
         instagramProfileId: 'profile-internal',
+        source: null,
         followers: 10,
         following: null,
         postsCount: 1,

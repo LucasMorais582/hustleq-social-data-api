@@ -118,16 +118,57 @@ describe('Daily persistence', () => {
       notDue: 1,
     });
   });
-  it.each([
-    [20 * 3600000 - 1, 0],
-    [20 * 3600000, 1],
-    [20 * 3600000 + 1, 1],
-  ])('uses 20h freshness at age %i', async (age, expected) => {
+  it.each([0, 3600000, 20 * 3600000 - 1])(
+    'does not let lastSyncedAt from %i ms ago suppress a missing daily count',
+    async (age) => {
+      const f = fixture();
+      Object.assign(f.profile, { lastSyncedAt: new Date(now.getTime() - age) });
+      expect((await enqueueDailyBatch(['profile'], 'owner', '2026-11-24', f.client)).queued).toBe(
+        1,
+      );
+    },
+  );
+  it('skips a profile that already has a count on this New York date, regardless of lastSyncedAt', async () => {
     const f = fixture();
-    Object.assign(f.profile, { lastSyncedAt: new Date(now.getTime() - age) });
-    expect((await enqueueDailyBatch(['profile'], 'owner', '2026-11-24', f.client)).queued).toBe(
-      expected,
-    );
+    Object.assign(f.profile, { lastSyncedAt: new Date('2020-01-01T00:00:00Z') });
+    f.tx.instagramProfileSnapshot.findFirst.mockResolvedValue({ id: 'today' });
+    expect(await enqueueDailyBatch(['profile'], 'owner', '2026-11-24', f.client)).toMatchObject({
+      queued: 0,
+      notDue: 1,
+    });
+    expect(f.tx.instagramProfileSnapshot.findFirst).toHaveBeenCalledWith({
+      where: {
+        instagramProfileId: 'profile',
+        collectedAt: {
+          gte: new Date('2026-11-24T05:00:00Z'),
+          lt: new Date('2026-11-25T05:00:00Z'),
+        },
+      },
+      select: { id: true },
+    });
+  });
+  it('reproduces the late GMT-3 sync followed by the next New York morning', async () => {
+    const f = fixture();
+    Object.assign(f.profile, { lastSyncedAt: new Date('2026-11-25T22:32:00-03:00') });
+    f.tx.instagramProfileSnapshot.findFirst.mockImplementation(async ({ where }) => {
+      const collected = new Date('2026-11-25T22:32:00-03:00');
+      return collected >= where.collectedAt.gte && collected < where.collectedAt.lt
+        ? { id: 'previous-day' }
+        : null;
+    });
+    expect(await enqueueDailyBatch(['profile'], 'owner', '2026-11-26', f.client)).toMatchObject({
+      queued: 1,
+      notDue: 0,
+    });
+  });
+  it('rechecks the current local day if another sync collected after enqueue', async () => {
+    const f = fixture();
+    f.tx.instagramProfileSnapshot.findFirst.mockResolvedValue({ id: 'manual-count-today' });
+    expect(await readDailyTargets(owner, f.client)).toEqual([]);
+    expect(f.tx.instagramSyncJob.update.mock.calls[0]![0].data.payload.daily).toMatchObject({
+      remainingProfileIds: [],
+      skippedProfileIds: ['profile'],
+    });
   });
   it('does not start another job for a profile already attempted on the same local date', async () => {
     const f = fixture();

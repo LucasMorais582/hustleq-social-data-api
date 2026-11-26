@@ -34,7 +34,7 @@ function profile(): StoredProfileRead {
     isVerified: null,
     syncStatus: 'pending',
     lastSyncedAt: null,
-    snapshots: [{ followers: null, following: 10, postsCount: 2, collectedAt }],
+    snapshots: [{ source: null, followers: null, following: 10, postsCount: 2, collectedAt }],
   };
 }
 function post(): StoredPostRead {
@@ -77,7 +77,7 @@ beforeEach(() => {
   mock.posts.mockImplementation(async () => savedPosts);
   mock.total.mockResolvedValue(1);
   mock.snapshots.mockResolvedValue([
-    { followers: null, following: 10, postsCount: 2, collectedAt },
+    { source: null, followers: null, following: 10, postsCount: 2, collectedAt },
   ]);
   tx = {
     instagramProfile: { findUnique: mock.profile },
@@ -109,6 +109,7 @@ describe('MVP stored profile reads 5, 6 and 7', () => {
       syncStatus: 'pending',
       lastSyncedAt: null,
       metrics: {
+        source: null,
         followers: null,
         following: 10,
         postsCount: 2,
@@ -129,6 +130,18 @@ describe('MVP stored profile reads 5, 6 and 7', () => {
     );
     expect(mock.apify).not.toHaveBeenCalled();
   });
+  it.each(['initial', 'daily'] as const)(
+    'exposes the %s follower snapshot source in profile and history reads',
+    async (source) => {
+      savedProfile = {
+        ...profile(),
+        snapshots: [{ source, followers: 42, following: null, postsCount: null, collectedAt }],
+      };
+      mock.snapshots.mockResolvedValue(savedProfile.snapshots);
+      expect((await request()).json().metrics.source).toBe(source);
+      expect((await request('/snapshots')).json().snapshots[0].source).toBe(source);
+    },
+  );
   it('normalizes stored legacy identity and hashtags without updating the database', async () => {
     savedProfile = { ...profile(), username: '@EXAMPLE', name: ' ' };
     savedPosts = [{ ...post(), ownerUsername: '@EXAMPLE', hashtags: ['#RJ', 'rj', '4'] }];
@@ -277,7 +290,13 @@ describe('MVP stored profile reads 5, 6 and 7', () => {
     expect(result.json()).toEqual({
       profileId: 'profile-internal',
       snapshots: [
-        { followers: null, following: 10, postsCount: 2, collectedAt: collectedAt.toISOString() },
+        {
+          source: null,
+          followers: null,
+          following: 10,
+          postsCount: 2,
+          collectedAt: collectedAt.toISOString(),
+        },
       ],
     });
     expect(mock.snapshots).toHaveBeenCalledWith(

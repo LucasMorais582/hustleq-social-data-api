@@ -503,3 +503,26 @@ Exercita chamadas concorrentes/idempotentes, mismatch sem mutação, jobs penden
 versus RUNNING, membro secundário de lote, histórico/incoming watches, revogação
 de leitura e novo convite/dono. Usa schema próprio com remoção/ausência verificadas
 e Apify simulado; não altera public nem executa Actors reais.
+
+## Atualização de 26/11: origem dos seguidores e histórico inicial
+
+Migration `20261126000000_add_profile_snapshot_source` adiciona
+`InstagramProfileSnapshot.source` como texto anulável. Não altera snapshots
+existentes: ficam com `null`. Novos snapshots dos jobs usam `initial` ou `daily`
+(inclusive Watched). Leituras de perfil e histórico expõem esse campo.
+
+Migration aplicada ao schema public em 26/11/2026, com autorização do usuário,
+via prisma migrate deploy. Registro conferido; os 11 snapshots existentes
+continuaram com source null. API e worker novos ainda precisam ser publicados.
+
+Daily e Watched substituem a regra anterior de 20h pelo dia civil em
+`America/New_York`, considerando horário de verão. Verificam os snapshots,
+não `lastSyncedAt`. A persistência transacional impede duplicar a contagem do
+dia. Initial mantém o intervalo anterior; o HTTP legado mantém 24h.
+
+O Initial agora busca 90 dias de posts, limitado por
+`INSTAGRAM_INITIAL_MAX_POSTS` (padrão 500, máximo 1000). Janela e teto ficam no
+payload do job. Posts são gravados em lotes de dez com checkpoints atômicos;
+`syncStatus` só fica `ready` após o último lote. Métricas históricas representam
+o instante da coleta, sem fabricar evolução desde a publicação. Daily/Watched
+seguem com doze posts. A mudança não dispara backfill dos perfis existentes.

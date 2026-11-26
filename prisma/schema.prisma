@@ -66,11 +66,12 @@ model InstagramProfileSnapshot {
   followers          Int?
   following          Int?
   postsCount         Int?
+  source             String?
   collectedAt        DateTime @default(now()) @db.Timestamptz(3)
 
   instagramProfile InstagramProfile @relation(fields: [instagramProfileId], references: [id], onDelete: Restrict)
 
-  // O intervalo mínimo de 24 horas exige validação transacional na persistência.
+  // A deduplicacao por dia NY dos jobs exige validacao transacional.
   @@unique([instagramProfileId, collectedAt])
 }
 

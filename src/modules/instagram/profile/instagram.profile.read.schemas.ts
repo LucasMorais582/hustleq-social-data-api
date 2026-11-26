@@ -21,6 +21,7 @@ export const instagramProfilePostsQuerySchema = z
   });
 export type ProfilePostsQuery = z.infer<typeof instagramProfilePostsQuerySchema>;
 export const publicProfileSnapshotSchema = z.object({
+  source: z.enum(['initial', 'daily']).nullable().default(null),
   followers: publicCountSchema,
   following: publicCountSchema,
   postsCount: publicCountSchema,

@@ -93,7 +93,7 @@ describe('Watched batching', () => {
     expect(m.reclaim).not.toHaveBeenCalled();
     expect(g.start).not.toHaveBeenCalled();
   });
-  it('collects profiles in one call and batches their reels, preserving daily source and 20h snapshots', async () => {
+  it('collects profiles in one call and batches their reels, preserving daily source and New York calendar snapshots', async () => {
     const g = gateway();
     expect(await processWatchedSync(job, client, g)).toMatchObject({
       status: 'succeeded',
@@ -103,13 +103,14 @@ describe('Watched batching', () => {
       usernames: ['example_profile', 'second'],
     });
     expect(g.start).toHaveBeenCalledTimes(2);
+    expect(m.commit.mock.calls[0]![2].profileSnapshotCadence).toBe('new-york-day');
     expect(m.commit).toHaveBeenNthCalledWith(
       1,
       expect.anything(),
       'first',
       expect.objectContaining({
         metricSource: 'daily',
-        profileSnapshotMinIntervalHours: 20,
+        profileSnapshotCadence: 'new-york-day',
         refreshRecentPostsLimit: 12,
         posts: expect.arrayContaining([expect.objectContaining({ viewsCount: 809683n })]),
       }),

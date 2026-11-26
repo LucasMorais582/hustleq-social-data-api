@@ -103,6 +103,7 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')(
               '20261117000000_create_instagram_models',
               '20261119000000_add_mvp_tracking_and_cache',
               '20261123000000_add_instagram_sync_jobs',
+              '20261126000000_add_profile_snapshot_source',
             ]) {
               const sql = await readFile(
                 new URL(`../prisma/migrations/${migration}/migration.sql`, import.meta.url),

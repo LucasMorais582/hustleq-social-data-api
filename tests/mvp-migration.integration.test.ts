@@ -62,6 +62,9 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')('MVP migration on Post
             await applyMigration(
               '../prisma/migrations/20261119000000_add_mvp_tracking_and_cache/migration.sql',
             );
+            await applyMigration(
+              '../prisma/migrations/20261126000000_add_profile_snapshot_source/migration.sql',
+            );
 
             const legacy = await tx.instagramPostMetricSnapshot.findUniqueOrThrow({
               where: { id: 'legacy-metric' },

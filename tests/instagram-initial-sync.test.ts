@@ -46,12 +46,19 @@ const client = {
 } as unknown as PrismaClient;
 const rawProfile = () => ({
   ...profileFixture,
-  latestPosts: [...profileFixture.latestPosts, reelFixture],
+  latestPosts: [
+    ...profileFixture.latestPosts,
+    { ...reelFixture, timestamp: '2026-11-20T12:00:00.000Z' },
+  ],
 });
 function gateway() {
   return {
     start: vi.fn().mockImplementation(async (actor: string) => ({
-      id: actor.includes('profile') ? 'profile-run' : 'reels-run',
+      id: actor.includes('profile')
+        ? 'profile-run'
+        : actor.includes('post-scraper')
+          ? 'posts-run'
+          : 'reels-run',
       status: 'RUNNING',
     })),
     get: vi.fn().mockImplementation(async (id: string) => ({
@@ -61,8 +68,8 @@ function gateway() {
       usageTotalUsd: 0.0023,
     })),
     items: vi.fn().mockImplementation(async (id: string) => ({
-      items: id === 'profile-run' ? [rawProfile()] : [reelFixture],
-      total: 1,
+      items: id === 'profile-run' ? [rawProfile()] : id === 'posts-run' ? [] : [reelFixture],
+      total: id === 'posts-run' ? 0 : 1,
     })),
   };
 }
@@ -73,6 +80,13 @@ beforeEach(() => {
     id: 'internal-profile',
     instagramId: profileFixture.id,
     username: 'example_profile',
+    history: {
+      from: new Date(now.getTime() - 90 * 86400000).toISOString(),
+      to: now.toISOString(),
+      limit: 500,
+      savedPostIds: [],
+      limitReached: false,
+    },
   });
   m.prepare.mockImplementation(async (_owner: unknown, step: string) => ({
     run: { id: `local-${step}`, apifyRunId: null } as ProviderRun,
@@ -84,6 +98,98 @@ beforeEach(() => {
   m.claim.mockResolvedValue(null);
 });
 describe('Initial Profile Sync', () => {
+  it('requests the durable 90-day window and configured ceiling from the Post Scraper', async () => {
+    const g = gateway();
+    await processInitialProfileSync(job, client, g);
+    expect(g.start).toHaveBeenNthCalledWith(2, 'apify/instagram-post-scraper', {
+      username: ['example_profile'],
+      resultsLimit: 500,
+      onlyPostsNewerThan: new Date(now.getTime() - 90 * 86400000).toISOString(),
+      skipPinnedPosts: false,
+      includeMusicData: false,
+    });
+    expect(m.prepare).toHaveBeenCalledWith(
+      expect.any(Object),
+      'history-reels',
+      'apify/instagram-reel-scraper',
+      client,
+    );
+  });
+  it('keeps more than twelve own posts in the window, including its boundary, and rejects older/future/unknown dates', () => {
+    const from = new Date(now.getTime() - 90 * 86400000);
+    const post = profileFixture.latestPosts[0]!;
+    const recent = Array.from({ length: 40 }, (_, i) => ({
+      ...post,
+      id: `recent-${i}`,
+      timestamp: new Date(now.getTime() - i * 86400000).toISOString(),
+    }));
+    const result = initialProfileCollection(
+      {
+        ...profileFixture,
+        latestPosts: [
+          { ...post, id: 'boundary', timestamp: from.toISOString() },
+          { ...post, id: 'old-pinned', timestamp: new Date(from.getTime() - 1).toISOString() },
+          { ...post, id: 'future', timestamp: new Date(now.getTime() + 1).toISOString() },
+          { ...post, id: 'unknown', timestamp: null },
+          { ...recent[0]!, id: 'foreign', ownerId: 'another-profile' },
+          ...recent,
+          recent[0]!,
+        ],
+      },
+      profileFixture.id,
+      [],
+      now,
+      { from: from.toISOString(), to: now.toISOString(), limit: 500 },
+    );
+    expect(result.posts).toHaveLength(41);
+    expect(result.posts.at(-1)?.instagramPostId).toBe('boundary');
+    expect(result.posts[0]?.instagramPostId).toBe('recent-0');
+  });
+  it('caps sorted history, reports a reached ceiling, and enriches only the retained Reels', async () => {
+    m.begin.mockResolvedValue({
+      id: 'internal-profile',
+      instagramId: profileFixture.id,
+      username: 'example_profile',
+      history: {
+        from: '2026-08-25T12:00:00.000Z',
+        to: now.toISOString(),
+        limit: 2,
+      },
+    });
+    const g = gateway();
+    g.items.mockImplementation(async (id) => {
+      const items =
+        id === 'profile-run'
+          ? [rawProfile()]
+          : id === 'posts-run'
+            ? [1, 2, 3].map((n) => ({
+                ...profileFixture.latestPosts[0]!,
+                id: `new-${n}`,
+                timestamp: `2026-11-${20 + n}T12:00:00.000Z`,
+              }))
+            : [];
+      return { items, total: items.length };
+    });
+    expect(await processInitialProfileSync(job, client, g)).toMatchObject({
+      status: 'succeeded',
+      history: { returnedCount: 2, limitReached: true },
+    });
+    expect(
+      m.commit.mock.calls[0]![1].posts.map(
+        (post: { instagramPostId: string }) => post.instagramPostId,
+      ),
+    ).toEqual(['new-3', 'new-2']);
+    expect(g.start).toHaveBeenCalledTimes(2);
+  });
+  it('does not silently replace a failed historical collection with only the twelve recent posts', async () => {
+    const g = gateway();
+    g.items.mockImplementation(async (id) => {
+      if (id === 'posts-run') throw new Error('historical collection failed');
+      return { items: [rawProfile()], total: 1 };
+    });
+    expect(await processInitialProfileSync(job, client, g)).toMatchObject({ status: 'retrying' });
+    expect(m.commit).not.toHaveBeenCalled();
+  });
   it('sorts by publication date, ignores posts from other authors and saves only twelve returned posts', () => {
     const posts = Array.from({ length: 15 }, (_, i) => ({
       ...profileFixture.latestPosts[0]!,
@@ -158,7 +264,7 @@ describe('Initial Profile Sync', () => {
     const g = gateway();
     expect(await processInitialProfileSync(job, client, g)).toMatchObject({ status: 'succeeded' });
     expect(g.start).toHaveBeenNthCalledWith(
-      2,
+      3,
       'apify/instagram-reel-scraper',
       expect.objectContaining({
         username: ['https://www.instagram.com/reel/Fixture_Reel/'],
@@ -173,14 +279,19 @@ describe('Initial Profile Sync', () => {
         posts: expect.arrayContaining([expect.objectContaining({ viewsCount: 809683n })]),
       }),
       client,
+      false,
+      expect.any(Function),
     );
     expect(m.fail).not.toHaveBeenCalled();
   });
   it('does not call the Reel Actor for a profile without Reels', async () => {
     const g = gateway();
-    g.items.mockResolvedValue({ items: [profileFixture], total: 1 });
+    g.items.mockImplementation(async (id) => ({
+      items: id === 'profile-run' ? [profileFixture] : [],
+      total: id === 'profile-run' ? 1 : 0,
+    }));
     expect(await processInitialProfileSync(job, client, g)).toMatchObject({ status: 'succeeded' });
-    expect(g.start).toHaveBeenCalledTimes(1);
+    expect(g.start).toHaveBeenCalledTimes(2);
   });
   it('keeps previous data and schedules retry on provider or identity errors', async () => {
     const g = gateway();

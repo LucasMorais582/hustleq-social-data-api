@@ -530,10 +530,21 @@ Nenhuma VPS foi acessada ou configurada nesta etapa. O processo trata SIGINT e
 SIGTERM, termina o job atual e fecha a conexao antes de sair. O supervisor deve
 permitir esse encerramento; se houver queda, a posse vencida pode ser retomada.
 
-O executor coleta o perfil, seleciona ate 12 posts retornados do proprio autor
-por data decrescente, e consulta apenas as URLs dos Reels selecionados. As views
-vem do Reel Scraper; ausencia continua null. Nao solicita transcript, download
-ou shares. O Profile Scraper nao garante acesso a todo o historico do Instagram.
+O Initial Sync coleta o perfil e usa apify/instagram-post-scraper para buscar
+posts dos ultimos 90 dias, com teto INSTAGRAM_INITIAL_MAX_POSTS (padrao 500,
+aceita 1–1000). O teto vale para todo o Initial, incluindo posts do Profile
+Scraper. A janela e o teto sao gravados no payload na primeira tentativa e nao
+mudam ao reiniciar o worker. Usa onlyPostsNewerThan absoluto, preserva posts
+fixados recentes, valida ownerId e datas, deduplica e ordena por timestamp.
+Depois consulta somente os Reels selecionados para obter views confiaveis.
+Nao solicita transcript, download, musica ou shares. Campos ausentes ficam null.
+
+O log initial_sync inclui history.from/to/limit/returnedCount/limitReached.
+Atingir o teto sinaliza possivel cobertura parcial, nao garante que todo o
+historico foi obtido. Restricoes do Actor/Instagram tambem podem limitar a coleta.
+Nao houve execucao paga para medir cobertura, tempo ou custo deste novo fluxo.
+Daily e Watched continuam atualizando somente os 12 posts mais recentes.
+Perfis ja sincronizados nao recebem backfill automaticamente nesta mudanca.
 
 Cada execucao usada por este worker registra ProviderRun com usuario/dono
 conhecido, Actor, apifyRunId, estado, quantidade e usageTotalUsd quando disponivel.
@@ -541,10 +552,19 @@ Custo desconhecido permanece null. Isso ainda nao instrumenta todas as chamadas
 legadas nem implementa GET /internal/costs. O payload interno do job guarda as
 referencias das etapas para permitir retomada sem iniciar outro Actor conhecido.
 
-Perfil, snapshots, syncStatus ready, lastSyncedAt e conclusao da tarefa sao
-persistidos na mesma transacao, com validacao da posse antes/depois. O historico
-e o intervalo atual de 24h para snapshots do perfil sao preservados. Falha agenda
-as tres tentativas confirmadas; depois, syncStatus fica failed sem apagar dados.
+Posts e primeiras metricas do Initial sao persistidos em lotes de dez, com
+checkpoint atomico no payload (initialHistory.savedPostIds) e validacao de lease.
+Retomar um lote concluido nao duplica snapshots nem inicia Actors conhecidos.
+O perfil permanece syncing ate o ultimo lote, quando ready/lastSyncedAt e a
+conclusao do job sao gravados atomicamente. Dados parciais permanecem salvos em
+falha; as tres tentativas continuam vigentes. Metricas existentes mais novas nao
+sao substituidas por uma coleta atrasada. A primeira metrica historica representa
+o momento da coleta, nao a data da publicacao.
+
+Snapshots de seguidores novos dos jobs recebem source initial ou daily; os
+anteriores permanecem null. O campo tambem e exposto em GET profiles/:id.metrics
+e GET profiles/:id/snapshots. Aplicar a migration
+20261126000000_add_profile_snapshot_source antes de publicar API/worker novos.
 
 Se uma conexao cair no inicio e nao for possivel persistir o id da Apify, o job
 registra PROVIDER_START_UNCERTAIN e nao repete automaticamente aquele POST. Esse
@@ -899,10 +919,12 @@ a mesma rota com token de serviço. Trends/search mantém seu contrato e continu
 sem persistência. Latência, custo e cobertura reais do Actor ainda precisam de
 validação autorizada; os testes desta etapa simulam o transporte Apify.
 
-## Daily Sync — lotes por usuário e intervalo de vinte horas
+## Daily Sync — lotes por usuário e contagem por dia de Nova York
 
-Decisões confirmadas em 24/11/2026: iniciar às 4h de Nova York, deduplicar snapshots
-automáticos por vinte horas e formar lotes somente por ownerUserId.
+O Daily inicia às 4h de Nova York e forma lotes somente por ownerUserId.
+A deduplicação do Daily usa o dia civil em America/New_York: se já existe um
+snapshot de seguidores nesse dia, não abre outra coleta diária. lastSyncedAt
+continua indicando a última sincronização, mas não impede a contagem do dia seguinte.
 
 ```dotenv
 INSTAGRAM_REFRESH_ENABLED=true
@@ -929,7 +951,9 @@ perfil/data local, mesmo se a sequência anterior terminou em falha.
 
 São elegíveis perfis próprios com dono e monitoramento vigente. Owner e prazo
 são revalidados ao enfileirar, ao executar e antes de gravar cada perfil. Perfil
-sincronizado há menos de vinte horas é ignorado. Perfis sem dono e relações de
+com contagem de seguidores no mesmo dia de Nova York é ignorado, inclusive se
+a contagem veio de outra sincronização. A checagem se repete antes do Actor e
+na persistência; os limites UTC respeitam o horário de verão. Perfis sem dono e relações de
 concorrência não entram no Daily: o Watched usa a seleção de relações descrita abaixo. Nenhum
 usuário é inferido do username, e nenhuma tabela User é criada.
 
@@ -961,7 +985,8 @@ novo; não se repete um POST de início incerto sem apifyRunId. Conteúdo invál
 um run sucedido pode permanecer inválido nas releituras e encerrar as tentativas
 sem outra cobrança de Actor. Payload inválido também tem retries limitados.
 
-Snapshots de perfil dos jobs Initial e Daily usam a regra nova de vinte horas.
+Snapshots de perfil do Daily e Watched são deduplicados pelo dia de Nova York.
+Initial mantém o intervalo de vinte horas.
 O fluxo HTTP legado profile/search mantém seu intervalo padrão anterior de 24h;
 cache Discover e frescor de post continuam em 24h, sem mudança. Snapshots novos
 de métricas do Daily usam source daily. Repetir a execução/reiniciar o worker não
@@ -987,7 +1012,8 @@ pausadas nao alimentam a coleta; historico permanece salvo. Os alvos sao
 revalidados antes do Apify e da persistencia. Daily que ja tentou aquele alvo na
 mesma data NY (mesmo com falha) impede uma segunda sequencia no Watched.
 
-Cada alvo e coletado uma vez e respeita o intervalo de vinte horas. Os lotes usam
+Cada alvo e coletado no maximo uma vez por dia de Nova York, usando snapshots
+de seguidores em vez de lastSyncedAt para decidir se falta a contagem do dia. Os lotes usam
 `INSTAGRAM_DAILY_BATCH_SIZE`, agrupados pelo usuario a quem o custo pertence.
 Multiplos perfis do mesmo usuario nao duplicam custo. Se usuarios diferentes
 acompanham o mesmo alvo, o custo e registrado uma vez com userId null e aparece

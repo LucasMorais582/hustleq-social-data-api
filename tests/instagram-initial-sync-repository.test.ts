@@ -8,6 +8,7 @@ import {
   withOwnedInitialSync,
   prepareInitialSyncRun,
   commitInitialProfileSync,
+  beginInitialProfileSync,
   SyncJobOwnershipLost,
 } from '../src/modules/instagram/jobs/instagram.initial-sync.repository.js';
 const owner = { id: 'job', lockToken: 'token' };
@@ -20,6 +21,7 @@ function fixture() {
     userId: 'caller',
     payload: null,
     leaseExpiresAt: new Date('2099-01-01T00:00:00Z'),
+    createdAt: new Date('2026-11-26T12:00:00.000Z'),
   };
   const query = vi
     .fn()
@@ -48,6 +50,71 @@ beforeEach(() => {
   save.mockResolvedValue({ instagramProfileId: 'profile' });
 });
 describe('fenced initial sync persistence', () => {
+  it('freezes the historical window and ceiling before any paid execution and preserves them on resume', async () => {
+    const f = fixture();
+    f.tx.instagramProfile.update.mockResolvedValue({
+      id: 'profile',
+      instagramId: 'external',
+      username: 'example',
+    });
+    expect(await beginInitialProfileSync(owner, f.client)).toMatchObject({
+      history: {
+        from: '2026-08-28T12:00:00.000Z',
+        to: '2026-11-26T12:00:00.000Z',
+        limit: 500,
+      },
+    });
+    const saved = f.tx.instagramSyncJob.update.mock.calls[0]![0].data.payload;
+    Object.assign(f.job, {
+      payload: { ...saved, initialHistory: { ...saved.initialHistory, limit: 200 } },
+    });
+    f.query.mockResolvedValueOnce([f.job]).mockResolvedValueOnce([{ valid: true }]);
+    expect(await beginInitialProfileSync(owner, f.client)).toMatchObject({
+      history: { limit: 200 },
+    });
+  });
+  it('resumes persisted post chunks without writing their metrics again and completes only the final chunk', async () => {
+    const f = fixture();
+    const posts = Array.from({ length: 25 }, (_, i) => ({ instagramPostId: `post-${i}` }));
+    Object.assign(f.job, {
+      payload: {
+        initialHistory: {
+          from: '2026-08-28T12:00:00.000Z',
+          to: '2026-11-26T12:00:00.000Z',
+          limit: 500,
+          savedPostIds: posts.slice(0, 10).map((post) => post.instagramPostId),
+        },
+      },
+    });
+    f.query.mockImplementation(async (query: TemplateStringsArray) => {
+      if (query.join('').includes('SELECT *')) return [f.job];
+      if (query.join('').includes('RETURNING')) return [{ id: 'job' }];
+      return [{ valid: true }];
+    });
+    f.tx.instagramSyncJob.update.mockImplementation(async ({ data }) => {
+      Object.assign(f.job, { payload: data.payload });
+    });
+    const heartbeat = vi.fn().mockResolvedValue(undefined);
+    await commitInitialProfileSync(
+      owner,
+      { profile: { instagramId: 'external' }, posts } as Parameters<
+        typeof commitInitialProfileSync
+      >[1],
+      f.client,
+      true,
+      heartbeat,
+    );
+    expect(save.mock.calls.map((call) => call[0].posts.length)).toEqual([10, 5]);
+    expect(save.mock.calls[0]![0].posts[0].instagramPostId).toBe('post-10');
+    expect(f.tx.instagramProfile.update).toHaveBeenCalledTimes(1);
+    expect(heartbeat).toHaveBeenCalledTimes(2);
+    expect(f.job.payload).toMatchObject({
+      initialHistory: {
+        savedPostIds: posts.map((post) => post.instagramPostId),
+        limitReached: true,
+      },
+    });
+  });
   it('creates the ProviderRun and stores its id in job metadata atomically with attribution to the owner', async () => {
     const f = fixture();
     expect(await prepareInitialSyncRun(owner, 'profile', 'actor', f.client)).toEqual({

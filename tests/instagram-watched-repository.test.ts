@@ -150,20 +150,33 @@ describe('Watched persistence and attribution', () => {
     await commitWatchedProfile(owner, 'profile', collection, f.client);
     expect(f.tx.instagramProfile.upsert).not.toHaveBeenCalled();
   });
-  it.each([20 * 3600000 - 1, 0])('does not collect a fresh target (%i ms)', async (age) => {
+  it.each([20 * 3600000 - 1, 0])(
+    'collects a missing day despite recent lastSyncedAt (%i ms)',
+    async (age) => {
+      const f = fixture();
+      f.profile.lastSyncedAt = new Date(now.getTime() - age) as never;
+      expect(await enqueueWatchedBatch(['profile'], 'owner', '2026-11-24', f.client)).toMatchObject(
+        { queued: 1 },
+      );
+      expect(await readWatchedTargets(owner, f.client)).toHaveLength(1);
+    },
+  );
+  it('skips a count already collected on the current New York day at enqueue/read/commit', async () => {
     const f = fixture();
-    f.profile.lastSyncedAt = new Date(now.getTime() - age) as never;
+    f.tx.instagramProfileSnapshot.findFirst.mockResolvedValue({ id: 'today' });
     expect(await enqueueWatchedBatch(['profile'], 'owner', '2026-11-24', f.client)).toMatchObject({
       notDue: 1,
     });
     expect(await readWatchedTargets(owner, f.client)).toEqual([]);
-  });
-  it('allows collection exactly at 20h', async () => {
-    const f = fixture();
-    f.profile.lastSyncedAt = new Date(now.getTime() - 20 * 3600000) as never;
-    expect(await enqueueWatchedBatch(['profile'], 'owner', '2026-11-24', f.client)).toMatchObject({
-      queued: 1,
-    });
+    const collection = initialProfileCollection(
+      { ...profileFixture, latestPosts: [] },
+      profileFixture.id,
+      [],
+      now,
+    );
+    await commitWatchedProfile(owner, 'profile', collection, f.client);
+    expect(f.tx.instagramProfileSnapshot.create).not.toHaveBeenCalled();
+    expect(f.tx.instagramProfile.upsert).toHaveBeenCalledOnce();
   });
   it('skips a failed Daily that actually prepared a Profile Actor for this target', async () => {
     const f = fixture();

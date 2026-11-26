@@ -41,7 +41,7 @@ publicadas/validadas pelo time; custos/SLA reais e demais fluxos exigem verifica
 | Convites, reserva, dono e monitoramento | Endpoints 1–5/11/17 implementados                    | Validacao externa de contrato/SLA                  |
 | Leituras de posts e historico           | Endpoints 6–9 implementados                          | Validar adaptador                                  |
 | Fila duravel e cinco executores         | Implementados                                        | Worker Railway informado; validar alteracoes novas |
-| Coleta diaria propria e acompanhada     | Daily (Q) e Watched (R), 12 posts e intervalo 20h    | Actors/SLA/custo reais                             |
+| Coleta diaria propria e acompanhada     | Daily/Watched por dia NY; ambos com 12 posts         | Actors/SLA/custo reais                             |
 | Contas acompanhadas                     | Endpoints 13–15 e sincronizacao implementados        | Integracao externa                                 |
 | Post Refresh                            | Fila, retries, deduplicacao e teto UTC               | Benchmark dos Actors e deploy                      |
 | Custos Apify                            | Ledger MVP/legado e conciliacao manual implementados | Conferencia de inicios sem ID e cobranca real      |
@@ -103,7 +103,7 @@ ownerUserId e atribuido explicitamente pelo endpoint interno 3, nunca por efeito
 | Tabela                      | Estado atual                                                                   | Pendente                                                 |
 | --------------------------- | ------------------------------------------------------------------------------ | -------------------------------------------------------- |
 | InstagramProfile            | Identidade e fluxos de reserva/dono/monitoramento; Initial Sync                | Elegibilidade/atualizacao Daily e Watched implementadas  |
-| InstagramProfileSnapshot    | Jobs Initial/Daily com intervalo minimo de 20h; legado HTTP 24h                | Validacao externa e historico diario em producao         |
+| InstagramProfileSnapshot    | Daily/Watched por dia NY; Initial 20h; legado HTTP 24h                         | Validacao externa e historico diario em producao         |
 | InstagramCompetitor         | Relacao, endedAt, historico e limite de tres ativos; endpoints 13–15           | Watched Sync implementado; validar integracao externa    |
 | InstagramPost               | Conteudo, lastCollectedAt e frescor 200/202 nos endpoints 6/8                  | Daily/Watched implementados; validar Actors reais        |
 | InstagramPostMetricSnapshot | Historico imutavel; source initial/on_open/refresh, views BigInt e likesHidden | source daily nos jobs; validacao real pendente           |
@@ -123,13 +123,13 @@ ProviderRun e depois criar uma linha nao impede execucoes concorrentes.
 
 ## Jobs: base atual e lacunas
 
-| Job                  | Base existente                                                                           | Pendências                                                                     |
-| -------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| Initial Profile Sync | Worker com 12 posts retornados/Reel Scraper/custos/retomada; endpoints 2 e 14 enfileiram | Lotes e validar SLA/cobranca reais                                             |
-| Daily Profile Sync   | Cron enfileira às 4h NY; lotes por dono, 12 posts, Reel Scraper, 20h, custos e retries   | Validacao PostgreSQL em schema isolado passou; faltam custo/SLA reais e deploy |
-| Watched Sync         | Etapa R: relacoes ativas elegiveis, depois do Daily, lotes por atribuicao, 20h e retries | Validacao de Actors/SLA/custo reais e deploy                                   |
-| Post Refresh         | Executor duravel ligado aos endpoints 8/10; source, custos, retries e lease              | Benchmark real dos Actors, deploy e integracao externa                         |
-| Discover Search      | Worker Seemu, 50 posts/30 dias, cache, fromCache, custos, retries e fencing              | Validacao real, deploy e aquecimento pelo backend                              |
+| Job                  | Base existente                                                                            | Pendências                                                                     |
+| -------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Initial Profile Sync | Worker com 90 dias/500 posts, Reel Scraper e checkpoint; endpoints 2 e 14 enfileiram      | Lotes e validar SLA/cobranca reais                                             |
+| Daily Profile Sync   | Cron enfileira às 4h NY; lotes por dono, 12 posts, Reel Scraper, dia NY, custos e retries | Validacao PostgreSQL em schema isolado passou; faltam custo/SLA reais e deploy |
+| Watched Sync         | Relacoes ativas elegiveis, depois do Daily, dia NY, lotes por atribuicao e retries        | Validacao de Actors/SLA/custo reais e deploy                                   |
+| Post Refresh         | Executor duravel ligado aos endpoints 8/10; source, custos, retries e lease               | Benchmark real dos Actors, deploy e integracao externa                         |
+| Discover Search      | Worker Seemu, 50 posts/30 dias, cache, fromCache, custos, retries e fencing               | Validacao real, deploy e aquecimento pelo backend                              |
 
 Estado atual: API e worker sao processos separados (worker Railway informado pelo usuario em 25/11), com tarefas
 persistidas no PostgreSQL e fencing de lease/token. O cron apenas enfileira,
@@ -138,7 +138,7 @@ processos. Os jobs tem tres tentativas totais (esperas de 1/5min) e retomada de
 runs conhecidos. Nao ha Promise solta executando Actor depois do HTTP.
 
 Decisoes confirmadas: iniciar o Daily as 4h America/New_York e usar intervalo
-minimo de vinte horas para snapshots automaticos Initial/Daily/Watched; legado
+minimo de vinte horas para snapshots Initial; Daily/Watched usam o dia NY; legado
 HTTP continua com 24h. Watched espera o Daily, inclusive retries futuros. A meta
 de terminar antes das 6h ainda exige medicao real. Nenhum deploy ou agendamento
 foi instalado na VPS. O backend principal no Railway e um servico separado.
@@ -1200,3 +1200,94 @@ foram publicadas nem aplicadas a dados de negócio. Schemas privados de testes
 são removidos; .env e arquivos pessoais permanecem intactos. Inventário atual:
 17 endpoints e cinco executores; somente os novos contratos exigem nova
 validação externa e o acesso aos metadados de custo continua limitado pelo 403.
+
+## Ajustes — histórico diário e Initial de 90 dias
+
+Etapa atual: correção prioritária do Daily. enqueueDailyBatch não usa mais
+lastSyncedAt nem intervalo de vinte horas para decidir a coleta. Consulta
+InstagramProfileSnapshot no intervalo [meia-noite NY, próxima meia-noite NY).
+A checagem se repete antes do Actor e dentro da transação de persistência.
+Uma sincronização no dia anterior não suprime a contagem do próximo dia.
+Se já existir contagem no dia, de qualquer origem, não cria outra. Locks,
+controle de dono/monitoramento, retries e histórico de tentativas são preservados.
+Horário de verão é considerado (dias de 23 e 25 horas). Não inventa contagens
+para dias passados sem coleta. Sem mudança de rota ou migration nesta etapa.
+
+| Solicitação                           | Situação                                                        |
+| ------------------------------------- | --------------------------------------------------------------- |
+| Daily com uma contagem por dia NY     | Implementado; 919 testes e duas integrações PostgreSQL passaram |
+| Extensão da regra ao Watched          | Aguardando confirmação                                          |
+| Initial com posts dos últimos 90 dias | Aguardando definição do teto de posts/custo                     |
+| source nos snapshots de seguidores    | Aguardando confirmação; métricas de posts já usam daily         |
+| Endpoints existentes (17)             | Contratos preservados; nenhuma rota nova necessária             |
+
+A regra anterior de vinte horas descrita nas etapas Q/R é histórica; o ajuste
+acima a substitui somente no Daily. Initial e Watched permanecem inalterados
+até confirmação.
+
+Validação desta etapa: npm test passou com 919 testes (13 integrações opt-in
+ignoradas nessa execução). Foram executadas separadamente duas integrações
+PostgreSQL: calendário/concorrência em 27s e worker Daily completo em 191s.
+Ambas passaram e removeram seus schemas temporários, confirmando a ausência.
+Typecheck, lint, formatação, build e git diff --check passaram. Actors foram
+simulados; nenhuma migration ou alteração foi aplicada às tabelas de negócio.
+
+## Ajustes confirmados em 26/11 — Watched, source e Initial de 90 dias
+
+O usuario confirmou as tres escolhas. Esta etapa substitui as pendencias da
+etapa anterior: Daily e Watched deduplicam seguidores pelo dia de Nova York;
+Initial busca 90 dias com teto configuravel de 500 posts (1–1000).
+
+| Funcionalidade / endpoint                                            | Estado                                                       |
+| -------------------------------------------------------------------- | ------------------------------------------------------------ |
+| Daily e Watched: calendario de NY, sem usar lastSyncedAt como filtro | Implementado                                                 |
+| Initial de 90 dias: Profile + Post Scraper + Reel Scraper            | Implementado; cobertura/custo reais ainda nao medidos        |
+| Teto INSTAGRAM_INITIAL_MAX_POSTS=500                                 | Implementado; congelado no job com a janela                  |
+| Persistencia Initial em lotes de dez com checkpoint                  | Implementado; evita transacao enorme e duplicacao ao retomar |
+| source dos seguidores initial/daily; legado null                     | Migration preparada, sem backfill e sem aplicacao em public  |
+| Perfil nos endpoints 5 e 11                                          | metrics acrescenta source nullable                           |
+| GET /instagram/profiles/:profileId/snapshots (7)                     | Cada snapshot acrescenta source nullable                     |
+| POST /internal/instagram/profiles (2) e POST .../competitors (14)    | Enfileiram o Initial ampliado; HTTP continua assincrono      |
+| Demais endpoints do inventario (17 no total)                         | Sem mudanca de contrato                                      |
+
+Historico de posts: somente publicacoes do proprio instagramId, dentro da
+janela congelada, sem repeticao, ordenadas por timestamp. Limite atingido e
+registrado em initialHistory.limitReached e log initial_sync.history, indicando
+possivel cobertura parcial. Retornos abaixo do teto nao sao prova de completude
+do Instagram. Views continuam exclusivas do Reel Scraper. Falha na coleta do
+historico nao faz fallback silencioso para doze posts. Os jobs novos atualizam
+as metricas dos posts historicos coletados; Daily/Watched permanecem em doze.
+Checkpoints atomicos preservam o progresso ao retomar e fencing protege cada lote.
+Nenhum numero historico de seguidores ou metrica antiga e inventado.
+
+Operacao: aplicar 20261126000000_add_profile_snapshot_source antes de publicar
+API e worker novos. Nao aplicar automaticamente ao banco ativo nesta etapa.
+Nao dispara backfill pago para perfis ja existentes. Nao altera o cron Railway.
+Input do Post Scraper conferido na documentacao oficial:
+https://apify.com/apify/instagram-post-scraper/api/openapi
+
+Validacao final da etapa de 26/11: npm test passou com 931 testes; 15 testes
+PostgreSQL opt-in ficam ignorados na execucao comum. Quatro testes foram
+executados separadamente em tres arquivos com banco real e Apify simulada:
+Initial completo/retomada (129s), Watched completo (189s), historico de 36 posts
+com checkpoints (103s) e migration preservando source null no legado (16s).
+Todos passaram. Os schemas temporarios foram removidos com ausencia confirmada.
+Typecheck, lint, format:check, build e git diff --check passaram. Prisma Client
+regenerado localmente. Nenhuma migration aplicada a public, execucao paga,
+commit, push ou deploy nesta etapa. .idea/ e AGENTS.md pessoais nao alterados.
+
+## Aplicacao autorizada da migration — 26/11/2026
+
+A pedido do usuario, foi aplicada a migration
+20261126000000_add_profile_snapshot_source ao banco configurado, schema public,
+por npm run prisma:migrate:deploy. Somente essa migration estava pendente;
+as tres anteriores ja estavam concluidas. A tentativa inicial sem acesso de
+rede falhou; migrate deploy com acesso liberado funcionou na porta 5432.
+A consulta de status na porta 6543 ficou travada e foi encerrada; consultas de
+verificacao via Prisma Client na porta 6543 funcionaram.
+
+Verificacao posterior: migration finished_at 2026-11-26T11:53:35.003Z,
+rolled_back_at null, coluna source TEXT nullable, 11 snapshots existentes e os
+mesmos 11 com source null. Nao houve backfill, mudanca de credenciais, commit,
+push ou deploy. Esta aplicacao autorizada substitui a pendencia de migration
+registrada na etapa anterior. API e worker ainda precisam receber o novo codigo.

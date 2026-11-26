@@ -16,9 +16,13 @@ import {
 import { readDailyTargets } from '../src/modules/instagram/jobs/instagram.daily.repository.js';
 import { SyncJobOwnershipLost } from '../src/modules/instagram/jobs/instagram.initial-sync.repository.js';
 import { findProfilesForInstagramRefresh } from '../src/modules/instagram/refresh/instagram.refresh.repository.js';
+import {
+  getInstagramLocalDate,
+  newYorkDayBounds,
+} from '../src/modules/instagram/shared/instagram.snapshot-day.js';
 
 describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')('Daily batching on PostgreSQL', () => {
-  it('isolates owner costs, commits good profiles, resumes partial batches and applies 20h/daily guards', async () => {
+  it('isolates owner costs, commits good profiles, resumes partial batches and applies calendar guards', async () => {
     const connection = process.env.DIRECT_URL ?? process.env.DATABASE_URL;
     if (!connection) throw new Error('Configure o banco de desenvolvimento');
     const namespace = `daily_test_${randomUUID().replaceAll('-', '')}`;
@@ -121,6 +125,7 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')('Daily batching on Pos
             '20261117000000_create_instagram_models',
             '20261119000000_add_mvp_tracking_and_cache',
             '20261123000000_add_instagram_sync_jobs',
+            '20261126000000_add_profile_snapshot_source',
           ]) {
             const sql = await readFile(
               new URL(`../prisma/migrations/${migration}/migration.sql`, import.meta.url),
@@ -144,7 +149,8 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')('Daily batching on Pos
       );
       created = true;
       const now = new Date();
-      const old = new Date(now.getTime() - 20 * 3600000 - 1000);
+      const date = getInstagramLocalDate(now);
+      const old = new Date(newYorkDayBounds(date).from.getTime() - 1000);
       await inSchema(async (tx) => {
         await tx.instagramProfile.createMany({
           data: [
@@ -206,8 +212,8 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')('Daily batching on Pos
       const candidates = await inSchema((tx) => findProfilesForInstagramRefresh(now, tx));
       expect(candidates.map((p) => p.id).sort()).toEqual(['alpha', 'beta', 'other']);
       const attempts = await Promise.all([
-        enqueueDailyBatch(['alpha', 'beta'], 'owner', '2026-11-24', client),
-        enqueueDailyBatch(['alpha', 'beta'], 'owner', '2026-11-24', client),
+        enqueueDailyBatch(['alpha', 'beta'], 'owner', date, client),
+        enqueueDailyBatch(['alpha', 'beta'], 'owner', date, client),
       ]);
       expect(attempts.reduce((sum, item) => sum + item.queued, 0)).toBe(2);
       expect(await inSchema((tx) => tx.instagramSyncJob.count())).toBe(1);
@@ -215,7 +221,7 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')('Daily batching on Pos
         type: 'DAILY_PROFILE_SYNC',
       });
       // A mixed-owner request cannot include the other user's profile in its paid batch.
-      expect(await enqueueDailyBatch(['other'], 'owner', '2026-11-24', client)).toMatchObject({
+      expect(await enqueueDailyBatch(['other'], 'owner', date, client)).toMatchObject({
         queued: 0,
         notDue: 1,
       });
@@ -323,14 +329,19 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')('Daily batching on Pos
         (await inSchema((tx) => tx.instagramProfile.findUniqueOrThrow({ where: { id: 'beta' } })))
           .syncStatus,
       ).toBe('ready');
-      expect(await enqueueDailyBatch(['beta'], 'owner', '2026-11-24', client)).toMatchObject({
+      expect(await enqueueDailyBatch(['beta'], 'owner', date, client)).toMatchObject({
         queued: 0,
         reused: 1,
       });
       privateBeta = false;
       expect(
-        await enqueueDailyBatch(['alpha', 'beta'], 'owner', '2026-11-25', client),
-      ).toMatchObject({ queued: 1, notDue: 1 });
+        await enqueueDailyBatch(
+          ['alpha', 'beta'],
+          'owner',
+          getInstagramLocalDate(new Date(now.getTime() + 86400000)),
+          client,
+        ),
+      ).toMatchObject({ queued: 2, notDue: 0 });
       expect(await runDailySyncWorkerOnce(client, gateway)).toMatchObject({
         status: 'succeeded',
         updated: 1,
@@ -344,9 +355,9 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')('Daily batching on Pos
         ),
       ).toBe(12);
       // Monitoring is checked again at execution, not just when the job was queued.
-      expect(
-        await enqueueDailyBatch(['other'], 'different-owner', '2026-11-24', client),
-      ).toMatchObject({ queued: 1 });
+      expect(await enqueueDailyBatch(['other'], 'different-owner', date, client)).toMatchObject({
+        queued: 1,
+      });
       await inSchema((tx) =>
         tx.instagramProfile.update({ where: { id: 'other' }, data: { monitoringUntil: old } }),
       );

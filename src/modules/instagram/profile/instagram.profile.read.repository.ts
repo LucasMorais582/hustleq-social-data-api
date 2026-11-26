@@ -5,6 +5,7 @@ import { storedDateFilter, type ReadRange } from '../shared/instagram.read.schem
 import type { ProfilePostsQuery } from './instagram.profile.read.schemas.js';
 
 const profileSnapshotSelect = {
+  source: true,
   followers: true,
   following: true,
   postsCount: true,

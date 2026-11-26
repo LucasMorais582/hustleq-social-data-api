@@ -56,6 +56,7 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')('Initial sync on Postg
             '20261117000000_create_instagram_models',
             '20261119000000_add_mvp_tracking_and_cache',
             '20261123000000_add_instagram_sync_jobs',
+            '20261126000000_add_profile_snapshot_source',
           ]) {
             const sql = await readFile(
               new URL(`../prisma/migrations/${migration}/migration.sql`, import.meta.url),
@@ -99,7 +100,11 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')('Initial sync on Postg
       );
       const gateway = {
         start: vi.fn().mockImplementation(async (actor: string) => ({
-          id: actor.includes('profile') ? 'profile-run' : 'reels-run',
+          id: actor.includes('profile')
+            ? 'profile-run'
+            : actor.includes('post-scraper')
+              ? 'posts-run'
+              : 'reels-run',
           status: 'RUNNING',
         })),
         get: vi.fn().mockImplementation(async (id: string) => ({
@@ -114,14 +119,22 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')('Initial sync on Postg
                 {
                   ...profileFixture,
                   latestPosts: [
-                    ...profileFixture.latestPosts,
-                    reelFixture,
+                    ...profileFixture.latestPosts.map((post) => ({
+                      ...post,
+                      timestamp: new Date(job!.createdAt.getTime() - 2 * 86400000).toISOString(),
+                    })),
+                    {
+                      ...reelFixture,
+                      timestamp: new Date(job!.createdAt.getTime() - 86400000).toISOString(),
+                    },
                     { ...reelFixture, id: 'foreign-post', ownerId: 'different-author' },
                   ],
                 },
               ]
-            : [reelFixture],
-          total: 1,
+            : id.includes('posts')
+              ? []
+              : [reelFixture],
+          total: id.includes('posts') ? 0 : 1,
         })),
       };
       expect(await processInitialProfileSync(job!, client, gateway)).toMatchObject({
@@ -155,11 +168,15 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')('Initial sync on Postg
       const runs = await inSchema((tx) =>
         tx.providerRun.findMany({ orderBy: { startedAt: 'asc' } }),
       );
-      expect(runs).toHaveLength(2);
+      expect(runs).toHaveLength(3);
       expect(
         runs.every((run) => run.status === 'succeeded' && run.userId === 'external-owner'),
       ).toBe(true);
-      expect(runs.map((run) => run.costUsd?.toFixed(6))).toEqual(['0.002300', '0.002600']);
+      expect(runs.map((run) => run.costUsd?.toFixed(6))).toEqual([
+        '0.002300',
+        '0.002600',
+        '0.002600',
+      ]);
       expect(
         await inSchema((tx) => tx.instagramSyncJob.findUniqueOrThrow({ where: { id: job!.id } })),
       ).toMatchObject({ status: 'SUCCEEDED', activeKey: null });
@@ -167,7 +184,7 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')('Initial sync on Postg
       expect(await processInitialProfileSync(job!, client, gateway)).toMatchObject({
         status: 'lost',
       });
-      expect(gateway.start).toHaveBeenCalledTimes(2);
+      expect(gateway.start).toHaveBeenCalledTimes(3);
 
       // Simula queda depois de persistir o id do Actor de perfil, antes da coleta terminar.
       await inSchema((tx) => enqueueInstagramSyncJob(input, tx));
@@ -199,8 +216,11 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')('Initial sync on Postg
       expect(await runInitialSyncWorkerOnce(client, gateway)).toMatchObject({
         status: 'succeeded',
       });
-      expect(gateway.start).toHaveBeenCalledTimes(1);
-      expect(gateway.start.mock.calls[0]![0]).toBe('apify/instagram-reel-scraper');
+      expect(gateway.start).toHaveBeenCalledTimes(2);
+      expect(gateway.start.mock.calls.map((call) => call[0])).toEqual([
+        'apify/instagram-post-scraper',
+        'apify/instagram-reel-scraper',
+      ]);
       expect(await inSchema((tx) => tx.instagramProfileSnapshot.count())).toBe(1);
       expect(await inSchema((tx) => tx.instagramPost.count())).toBe(2);
       expect(

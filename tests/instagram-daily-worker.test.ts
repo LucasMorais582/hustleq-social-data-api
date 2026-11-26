@@ -80,7 +80,7 @@ beforeEach(() => {
   m.reclaim.mockResolvedValue(null);
 });
 describe('Daily Profile Sync batching', () => {
-  it('collects profiles in one call and batches their reels, preserving daily source and 20h snapshots', async () => {
+  it('collects profiles in one call and batches their reels, preserving daily source and New York calendar snapshots', async () => {
     const g = gateway();
     expect(await processDailySync(job, client, g)).toMatchObject({
       status: 'succeeded',
@@ -96,7 +96,7 @@ describe('Daily Profile Sync batching', () => {
       'first',
       expect.objectContaining({
         metricSource: 'daily',
-        profileSnapshotMinIntervalHours: 20,
+        profileSnapshotCadence: 'new-york-day',
         refreshRecentPostsLimit: 12,
         posts: expect.arrayContaining([expect.objectContaining({ viewsCount: 809683n })]),
       }),

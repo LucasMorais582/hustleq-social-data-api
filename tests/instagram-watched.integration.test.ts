@@ -1,3 +1,4 @@
+import { getInstagramLocalDate } from '../src/modules/instagram/shared/instagram.snapshot-day.js';
 import 'dotenv/config';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -128,6 +129,7 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')('Watched batches on Po
             '20261117000000_create_instagram_models',
             '20261119000000_add_mvp_tracking_and_cache',
             '20261123000000_add_instagram_sync_jobs',
+            '20261126000000_add_profile_snapshot_source',
           ]) {
             const sql = await readFile(
               new URL(`../prisma/migrations/${migration}/migration.sql`, import.meta.url),
@@ -209,8 +211,8 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')('Watched batches on Po
         (await inSchema((tx) => findWatchedCandidates(now, tx))).some((p) => p.id === 'ended'),
       ).toBe(false);
       const queued = await Promise.all([
-        enqueueWatchedBatch(['alpha', 'beta'], null, '2026-11-24', client),
-        enqueueWatchedBatch(['alpha', 'beta'], null, '2026-11-24', client),
+        enqueueWatchedBatch(['alpha', 'beta'], null, getInstagramLocalDate(new Date()), client),
+        enqueueWatchedBatch(['alpha', 'beta'], null, getInstagramLocalDate(new Date()), client),
       ]);
       expect(queued.reduce((sum, r) => sum + r.queued, 0)).toBe(2);
       expect(
@@ -223,7 +225,9 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')('Watched batches on Po
       await inSchema((tx) =>
         tx.instagramCompetitor.update({ where: { id: 'two-alpha' }, data: { endedAt: now } }),
       );
-      expect(await enqueueWatchedBatch(['alpha'], 'u1', '2026-11-24', client)).toMatchObject({
+      expect(
+        await enqueueWatchedBatch(['alpha'], 'u1', getInstagramLocalDate(new Date()), client),
+      ).toMatchObject({
         queued: 0,
         reused: 1,
       });
@@ -231,9 +235,11 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')('Watched batches on Po
         tx.instagramCompetitor.update({ where: { id: 'two-alpha' }, data: { endedAt: null } }),
       );
       // A Daily prepared-but-failed attempt must not gain three additional paid Watched attempts.
-      await enqueueDailyBatch(['daily'], 'daily-owner', '2026-11-24', client);
+      await enqueueDailyBatch(['daily'], 'daily-owner', getInstagramLocalDate(new Date()), client);
       expect(await runWatchedSyncWorkerOnce(client, gateway)).toBeNull();
-      expect(await enqueueWatchedBatch(['daily'], 'u1', '2026-11-24', client)).toMatchObject({
+      expect(
+        await enqueueWatchedBatch(['daily'], 'u1', getInstagramLocalDate(new Date()), client),
+      ).toMatchObject({
         queued: 1,
       });
       const daily = await claimNextInstagramSyncJob(600000, client, 'DAILY_PROFILE_SYNC');
@@ -258,7 +264,9 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')('Watched batches on Po
           },
         }),
       );
-      expect(await enqueueWatchedBatch(['daily'], 'u1', '2026-11-24', client)).toMatchObject({
+      expect(
+        await enqueueWatchedBatch(['daily'], 'u1', getInstagramLocalDate(new Date()), client),
+      ).toMatchObject({
         queued: 0,
         reused: 1,
       });
@@ -311,7 +319,12 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')('Watched batches on Po
         ),
       ).toBe(2);
       expect(
-        await enqueueWatchedBatch(['alpha', 'beta'], null, '2026-11-24', client),
+        await enqueueWatchedBatch(
+          ['alpha', 'beta'],
+          null,
+          getInstagramLocalDate(new Date()),
+          client,
+        ),
       ).toMatchObject({ queued: 0, notDue: 2 });
       expect(await runWatchedSyncWorkerOnce(client, gateway)).toMatchObject({
         status: 'succeeded',
@@ -323,7 +336,14 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === 'true')('Watched batches on Po
         await tx.instagramProfile.update({ where: { id: 'beta' }, data: { lastSyncedAt: old } });
         await tx.instagramCompetitor.update({ where: { id: 'two-beta' }, data: { endedAt: now } });
       });
-      expect(await enqueueWatchedBatch(['beta'], 'u1', '2026-11-25', client)).toMatchObject({
+      expect(
+        await enqueueWatchedBatch(
+          ['beta'],
+          'u1',
+          getInstagramLocalDate(new Date(Date.now() + 86400000)),
+          client,
+        ),
+      ).toMatchObject({
         queued: 1,
       });
       await inSchema((tx) =>

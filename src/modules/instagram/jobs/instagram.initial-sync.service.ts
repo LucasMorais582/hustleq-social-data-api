@@ -10,6 +10,7 @@ import { parseInstagramProfileResult } from '../profile/instagram.profile.servic
 import type { ProfileCollection } from '../profile/instagram.profile.repository.js';
 import { normalizeProfileName } from '../shared/instagram.normalize.js';
 import { normalizeInstagramPost } from '../shared/instagram.post.normalize.js';
+import type { InitialHistory } from './instagram.initial-history.schemas.js';
 import {
   beginInitialProfileSync,
   prepareInitialSyncRun,
@@ -29,6 +30,7 @@ export function initialProfileCollection(
   expectedId: string,
   reels: unknown[],
   collectedAt: Date,
+  history?: Pick<InitialHistory, 'from' | 'to' | 'limit'>,
 ): ProfileCollection {
   const profile = parseInstagramProfileResult(raw, expectedId);
   const unique = new Map<string, ReturnType<typeof normalizeInstagramPost>>();
@@ -37,13 +39,20 @@ export function initialProfileCollection(
       unique.set(item.id, normalizeInstagramPost(item, 'profile'));
   }
   const posts = [...unique.values()]
+    .filter(
+      (post) =>
+        !history ||
+        (post.timestamp !== null &&
+          Date.parse(post.timestamp) >= Date.parse(history.from) &&
+          Date.parse(post.timestamp) <= Date.parse(history.to)),
+    )
     .sort((a, b) => {
       const date =
         (b.timestamp ? Date.parse(b.timestamp) : -Infinity) -
         (a.timestamp ? Date.parse(a.timestamp) : -Infinity);
       return (Number.isNaN(date) ? 0 : date) || (a.id! < b.id! ? -1 : a.id === b.id ? 0 : 1);
     })
-    .slice(0, 12);
+    .slice(0, history?.limit ?? 12);
   const byId = new Map(posts.map((post) => [post.id, post]));
   for (const rawReel of reels) {
     const reel = normalizeInstagramPost(rawReel, 'reel');
@@ -132,7 +141,11 @@ export async function processInitialProfileSync(
     await heartbeat();
     const profile = await beginInitialProfileSync(owner, client);
     const executionGateway = gateway ?? createTrackedRunGateway();
-    const execute = (step: 'profile' | 'reels', actor: string, input: Record<string, unknown>) =>
+    const execute = (
+      step: 'profile' | 'posts' | 'history-reels',
+      actor: string,
+      input: Record<string, unknown>,
+    ) =>
       executeTrackedActor(
         actor,
         input,
@@ -152,10 +165,21 @@ export async function processInitialProfileSync(
         'PROVIDER_INVALID_RESPONSE',
         'A Apify retornou perfis inesperados',
       );
-    const first = initialProfileCollection(profiles[0], profile.instagramId, [], new Date());
+    const parsed = parseInstagramProfileResult(profiles[0], profile.instagramId);
+    const history = profile.history;
+    const historicalPosts = await execute('posts', 'apify/instagram-post-scraper', {
+      username: [profile.username],
+      resultsLimit: history.limit,
+      onlyPostsNewerThan: history.from,
+      skipPinnedPosts: false,
+      includeMusicData: false,
+    });
+    const merged = { ...parsed, latestPosts: [...historicalPosts, ...parsed.latestPosts] };
+    const first = initialProfileCollection(merged, profile.instagramId, [], new Date(), history);
     const urls = initialReelUrls(first);
     const reels = urls.length
-      ? await execute('reels', 'apify/instagram-reel-scraper', {
+      ? // Nao reutilizar o antigo run "reels", que cobria apenas doze posts.
+        await execute('history-reels', 'apify/instagram-reel-scraper', {
           username: urls,
           resultsLimit: 1,
           includeSharesCount: false,
@@ -164,13 +188,26 @@ export async function processInitialProfileSync(
         })
       : [];
     const collection = initialProfileCollection(
-      profiles[0],
+      merged,
       profile.instagramId,
       reels,
       new Date(),
+      history,
     );
-    await commitInitialProfileSync(owner, collection, client);
-    return { status: 'succeeded' as const, jobId: job.id };
+    const limitReached =
+      historicalPosts.length >= history.limit || first.posts.length >= history.limit;
+    await commitInitialProfileSync(owner, collection, client, limitReached, heartbeat);
+    return {
+      status: 'succeeded' as const,
+      jobId: job.id,
+      history: {
+        from: history.from,
+        to: history.to,
+        limit: history.limit,
+        returnedCount: collection.posts.length,
+        limitReached,
+      },
+    };
   } catch (error) {
     if (error instanceof SyncJobOwnershipLost) return { status: 'lost' as const, jobId: job.id };
     try {

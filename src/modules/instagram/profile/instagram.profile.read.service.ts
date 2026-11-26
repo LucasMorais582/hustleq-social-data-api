@@ -9,6 +9,7 @@ import {
 import type { ReadRange } from '../shared/instagram.read.schemas.js';
 import {
   storedProfileResponseSchema,
+  publicProfileSnapshotSchema,
   type ProfilePostsQuery,
 } from './instagram.profile.read.schemas.js';
 import {
@@ -73,9 +74,11 @@ export async function getStoredInstagramProfileSnapshots(
   const snapshots = await readStoredInstagramProfileSnapshots(profileId, userId, range);
   return {
     profileId,
-    snapshots: snapshots.map((snapshot) => ({
-      ...snapshot,
-      collectedAt: snapshot.collectedAt.toISOString(),
-    })),
+    snapshots: snapshots.map((snapshot) =>
+      publicProfileSnapshotSchema.parse({
+        ...snapshot,
+        collectedAt: snapshot.collectedAt.toISOString(),
+      }),
+    ),
   };
 }

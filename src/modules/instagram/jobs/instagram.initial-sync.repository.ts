@@ -1,5 +1,7 @@
 import { Prisma, type InstagramSyncJob, type PrismaClient } from '@prisma/client';
 import { z } from 'zod/v4';
+import { env } from '../../../config/env.js';
+import { initialHistorySchema } from './instagram.initial-history.schemas.js';
 import { getPrismaClient } from '../../../provider/database/prisma.client.js';
 import {
   saveProfileCollectionInTransaction,
@@ -86,7 +88,19 @@ export function beginInitialProfileSync(owner: InitialJobOwner, client?: PrismaC
         data: { syncStatus: 'syncing' },
         select: { id: true, instagramId: true, username: true },
       });
-      return profile;
+      const metadata = metadataSchema.parse(job.payload ?? {});
+      const history = initialHistorySchema.parse(
+        metadata.initialHistory ?? {
+          from: new Date(job.createdAt.getTime() - 90 * 86400000).toISOString(),
+          to: job.createdAt.toISOString(),
+          limit: env.INSTAGRAM_INITIAL_MAX_POSTS,
+        },
+      );
+      await tx.instagramSyncJob.update({
+        where: { id: job.id },
+        data: { payload: { ...metadata, initialHistory: history } as Prisma.InputJsonValue },
+      });
+      return { ...profile, history };
     },
     client,
   );
@@ -94,7 +108,7 @@ export function beginInitialProfileSync(owner: InitialJobOwner, client?: PrismaC
 
 export function prepareInitialSyncRun(
   owner: InitialJobOwner,
-  step: 'profile' | 'reels',
+  step: 'profile' | 'posts' | 'reels' | 'history-reels',
   actor: string,
   client?: PrismaClient,
 ) {
@@ -141,31 +155,70 @@ export function prepareInitialSyncRun(
   );
 }
 
-export function commitInitialProfileSync(
+export async function commitInitialProfileSync(
   owner: InitialJobOwner,
   collection: ProfileCollection,
   client?: PrismaClient,
+  limitReached = false,
+  heartbeat: () => Promise<void> = async () => {},
 ) {
-  return withOwnedInitialSync(
-    owner,
-    async (tx, job) => {
-      const profile = await tx.instagramProfile.findUniqueOrThrow({
-        where: { id: job.instagramProfileId! },
-        select: { instagramId: true },
-      });
-      if (profile.instagramId !== collection.profile.instagramId)
-        throw new Error('PROFILE_IDENTITY_MISMATCH');
-      const saved = await saveProfileCollectionInTransaction(collection, tx);
-      if (saved.instagramProfileId !== job.instagramProfileId)
-        throw new Error('PROFILE_IDENTITY_MISMATCH');
-      await tx.instagramProfile.update({
-        where: { id: job.instagramProfileId! },
-        data: { syncStatus: 'ready', lastSyncedAt: collection.collectedAt },
-      });
-      if (!(await completeInstagramSyncJob(owner, tx))) throw new SyncJobOwnershipLost();
-    },
-    client,
-  );
+  // Transacoes pequenas: nao manter ate 1000 posts em uma transacao de 30s.
+  // O checkpoint e os snapshots do lote sao atomicos, inclusive apos crash/retry.
+  let finished = false;
+  while (!finished) {
+    await heartbeat();
+    finished = await withOwnedInitialSync(
+      owner,
+      async (tx, job) => {
+        const profile = await tx.instagramProfile.findUniqueOrThrow({
+          where: { id: job.instagramProfileId! },
+          select: { instagramId: true },
+        });
+        if (profile.instagramId !== collection.profile.instagramId)
+          throw new Error('PROFILE_IDENTITY_MISMATCH');
+        const metadata = metadataSchema.parse(job.payload ?? {});
+        const history = metadata.initialHistory
+          ? initialHistorySchema.parse(metadata.initialHistory)
+          : null;
+        const savedIds = new Set(history?.savedPostIds ?? []);
+        const pending = collection.posts.filter((post) => !savedIds.has(post.instagramPostId));
+        const batch = pending.slice(0, 10);
+        const saved = await saveProfileCollectionInTransaction(
+          {
+            ...collection,
+            posts: batch,
+            refreshAllCollectedPosts: true,
+          },
+          tx,
+        );
+        if (saved.instagramProfileId !== job.instagramProfileId)
+          throw new Error('PROFILE_IDENTITY_MISMATCH');
+        for (const post of batch) savedIds.add(post.instagramPostId);
+        if (history) {
+          await tx.instagramSyncJob.update({
+            where: { id: job.id },
+            data: {
+              payload: {
+                ...metadata,
+                initialHistory: { ...history, savedPostIds: [...savedIds], limitReached },
+              } as Prisma.InputJsonValue,
+            },
+          });
+        } else if (pending.length > batch.length) {
+          // Todo job novo recebe a janela em beginInitialProfileSync.
+          throw new Error('INITIAL_HISTORY_METADATA_REQUIRED');
+        }
+        if (pending.length > batch.length) return false;
+        await tx.instagramProfile.update({
+          where: { id: job.instagramProfileId! },
+          data: { syncStatus: 'ready', lastSyncedAt: collection.collectedAt },
+        });
+        if (!(await completeInstagramSyncJob(owner, tx))) throw new SyncJobOwnershipLost();
+        return true;
+      },
+      client,
+    );
+  }
 }
 
 export function failInitialProfileSync(

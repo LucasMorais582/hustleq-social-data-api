@@ -1,3 +1,7 @@
+import {
+  getInstagramLocalDate,
+  hasProfileSnapshotOnDate,
+} from '../shared/instagram.snapshot-day.js';
 import { Prisma } from '@prisma/client';
 import type { InstagramMediaType, PrismaClient } from '@prisma/client';
 import { getPrismaClient } from '../../../provider/database/prisma.client.js';
@@ -22,7 +26,9 @@ export interface ProfileCollection {
   refreshMetricsSince?: Date;
   metricSource?: 'initial' | 'daily';
   profileSnapshotMinIntervalHours?: 20 | 24;
+  profileSnapshotCadence?: 'new-york-day';
   refreshRecentPostsLimit?: 10 | 12;
+  refreshAllCollectedPosts?: boolean;
   posts: {
     instagramPostId: string;
     type: InstagramMediaType;
@@ -83,21 +89,31 @@ export async function saveProfileCollectionInTransaction(
     create: identity,
     update: identity,
   });
-  const latestSnapshot = await tx.instagramProfileSnapshot.findFirst({
-    where: { instagramProfileId: profile.id },
-    orderBy: { collectedAt: 'desc' },
-  });
-  if (
-    !latestSnapshot ||
-    collection.collectedAt.getTime() - latestSnapshot.collectedAt.getTime() >=
-      (collection.profileSnapshotMinIntervalHours ?? 24) * 3600000
-  ) {
+  let shouldCreate: boolean;
+  if (collection.profileSnapshotCadence === 'new-york-day') {
+    shouldCreate = !(await hasProfileSnapshotOnDate(
+      profile.id,
+      getInstagramLocalDate(collection.collectedAt),
+      tx,
+    ));
+  } else {
+    const latestSnapshot = await tx.instagramProfileSnapshot.findFirst({
+      where: { instagramProfileId: profile.id },
+      orderBy: { collectedAt: 'desc' },
+    });
+    shouldCreate =
+      !latestSnapshot ||
+      collection.collectedAt.getTime() - latestSnapshot.collectedAt.getTime() >=
+        (collection.profileSnapshotMinIntervalHours ?? 24) * 3600000;
+  }
+  if (shouldCreate) {
     await tx.instagramProfileSnapshot.create({
       data: {
         instagramProfileId: profile.id,
         followers,
         following,
         postsCount,
+        source: collection.metricSource ?? null,
         collectedAt: collection.collectedAt,
       },
     });
@@ -121,7 +137,18 @@ export async function saveProfileCollectionInTransaction(
       },
       update: content,
     });
-    if (!existing) {
+    const latestMetric =
+      existing && collection.refreshAllCollectedPosts
+        ? await tx.instagramPostMetricSnapshot.findFirst({
+            where: { instagramPostId: savedPost.id },
+            orderBy: { collectedAt: 'desc' },
+          })
+        : null;
+    if (
+      !existing ||
+      (collection.refreshAllCollectedPosts &&
+        (!latestMetric || latestMetric.collectedAt < collection.collectedAt))
+    ) {
       await tx.instagramPostMetricSnapshot.create({
         data: {
           instagramPostId: savedPost.id,
@@ -133,9 +160,15 @@ export async function saveProfileCollectionInTransaction(
           collectedAt: collection.collectedAt,
         },
       });
+      if (existing) {
+        await tx.instagramPost.update({
+          where: { id: savedPost.id },
+          data: { lastCollectedAt: collection.collectedAt },
+        });
+      }
     }
   }
-  if (collection.refreshMetricsSince) {
+  if (collection.refreshMetricsSince && !collection.refreshAllCollectedPosts) {
     const latestPosts = await tx.instagramPost.findMany({
       where: { instagramProfileId: profile.id, timestamp: { not: null } },
       orderBy: [{ timestamp: 'desc' }, { id: 'asc' }],

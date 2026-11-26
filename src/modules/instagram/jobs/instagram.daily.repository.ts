@@ -1,3 +1,7 @@
+import {
+  getInstagramLocalDate,
+  hasProfileSnapshotOnDate,
+} from '../shared/instagram.snapshot-day.js';
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { getPrismaClient } from '../../../provider/database/prisma.client.js';
 import {
@@ -13,7 +17,6 @@ import {
   type ProfileCollection,
 } from '../profile/instagram.profile.repository.js';
 
-export const DAILY_MIN_INTERVAL_MS = 20 * 3600000;
 function eligible(
   profile: { ownerUserId: string | null; monitoringUntil: Date | null },
   owner: string,
@@ -47,10 +50,10 @@ export async function enqueueDailyBatch(
           let reused = 0;
           let notDue = ids.length - profiles.length;
           for (const profile of profiles) {
-            const age = profile.lastSyncedAt
-              ? clock.now.getTime() - profile.lastSyncedAt.getTime()
-              : Infinity;
-            if (!eligible(profile, owner, clock.now) || (age >= 0 && age < DAILY_MIN_INTERVAL_MS)) {
+            if (
+              !eligible(profile, owner, clock.now) ||
+              (await hasProfileSnapshotOnDate(profile.id, date, tx))
+            ) {
               notDue++;
               continue;
             }
@@ -122,9 +125,14 @@ export function readDailyTargets(owner: InitialJobOwner, client?: PrismaClient) 
         where: { id: { in: metadata.daily.remainingProfileIds } },
         orderBy: { id: 'asc' },
       });
-      const targets = profiles.filter((profile) =>
-        eligible(profile, metadata.daily.ownerUserId, clock.now),
-      );
+      const targets = [];
+      for (const profile of profiles) {
+        if (
+          eligible(profile, metadata.daily.ownerUserId, clock.now) &&
+          !(await hasProfileSnapshotOnDate(profile.id, getInstagramLocalDate(clock.now), tx))
+        )
+          targets.push(profile);
+      }
       const selected = new Set(targets.map((profile) => profile.id));
       const skipped = metadata.daily.remainingProfileIds.filter((id) => !selected.has(id));
       if (skipped.length) {
@@ -214,7 +222,7 @@ export function commitDailyProfile(
         if (profile.instagramId !== collection.profile.instagramId)
           throw new Error('PROFILE_IDENTITY_MISMATCH');
         const saved = await saveProfileCollectionInTransaction(
-          { ...collection, metricSource: 'daily', profileSnapshotMinIntervalHours: 20 },
+          { ...collection, metricSource: 'daily', profileSnapshotCadence: 'new-york-day' },
           tx,
         );
         if (saved.instagramProfileId !== profileId) throw new Error('PROFILE_IDENTITY_MISMATCH');

@@ -1,3 +1,7 @@
+import {
+  getInstagramLocalDate,
+  hasProfileSnapshotOnDate,
+} from '../shared/instagram.snapshot-day.js';
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { getPrismaClient } from '../../../provider/database/prisma.client.js';
 import {
@@ -19,7 +23,6 @@ import {
   type ProfileCollection,
 } from '../profile/instagram.profile.repository.js';
 
-export const WATCHED_MIN_INTERVAL_MS = 20 * 3600000;
 export async function enqueueWatchedBatch(
   ids: string[],
   owner: string | null,
@@ -45,12 +48,9 @@ export async function enqueueWatchedBatch(
           let reused = 0;
           let notDue = ids.length - profiles.length;
           for (const profile of profiles) {
-            const age = profile.lastSyncedAt
-              ? clock.now.getTime() - profile.lastSyncedAt.getTime()
-              : Infinity;
             if (
               !candidates.some((p) => p.id === profile.id && p.userId === owner) ||
-              (age >= 0 && age < WATCHED_MIN_INTERVAL_MS)
+              (await hasProfileSnapshotOnDate(profile.id, date, tx))
             ) {
               notDue++;
               continue;
@@ -146,12 +146,9 @@ export function readWatchedTargets(owner: InitialJobOwner, client?: PrismaClient
       );
       const targets = [];
       for (const profile of profiles) {
-        const age = profile.lastSyncedAt
-          ? clock.now.getTime() - profile.lastSyncedAt.getTime()
-          : Infinity;
         if (
           candidates.some((p) => p.id === profile.id && p.userId === metadata.watched.userId) &&
-          !(age >= 0 && age < WATCHED_MIN_INTERVAL_MS) &&
+          !(await hasProfileSnapshotOnDate(profile.id, getInstagramLocalDate(clock.now), tx)) &&
           !(await wasDailyAttempted(profile.id, metadata.watched.date, tx, clock.now))
         )
           targets.push(profile);
@@ -260,18 +257,16 @@ export function commitWatchedProfile(
       const [clock] = await tx.$queryRaw<{ now: Date }[]>`SELECT clock_timestamp() AS now`;
       if (!clock) throw new Error('DATABASE_CLOCK_UNAVAILABLE');
       const candidates = await findWatchedCandidates(clock.now, tx, [profileId]);
-      const age = profile.lastSyncedAt
-        ? clock.now.getTime() - profile.lastSyncedAt.getTime()
-        : Infinity;
       if (
         candidates.length &&
-        !(age >= 0 && age < WATCHED_MIN_INTERVAL_MS) &&
         !(await wasDailyAttempted(profileId, metadata.watched.date, tx, clock.now))
       ) {
         if (profile.instagramId !== collection.profile.instagramId)
           throw new Error('PROFILE_IDENTITY_MISMATCH');
+        // Se outra coleta terminou enquanto o Actor rodava, preservar os posts
+        // obtidos; a persistencia deduplica somente a contagem de seguidores.
         const saved = await saveProfileCollectionInTransaction(
-          { ...collection, metricSource: 'daily', profileSnapshotMinIntervalHours: 20 },
+          { ...collection, metricSource: 'daily', profileSnapshotCadence: 'new-york-day' },
           tx,
         );
         if (saved.instagramProfileId !== profileId) throw new Error('PROFILE_IDENTITY_MISMATCH');
